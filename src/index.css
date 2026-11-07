@@ -1,0 +1,13 @@
+@import "./styles/base.css";
+@import "./styles/upload.css";
+@import "./styles/layout.css";
+@import "./styles/workspace.css";
+@import "./styles/overview.css";
+@import "./styles/solution.css";
+@import "./styles/environment.css";
+@import "./styles/connections.css";
+@import "./styles/dependencies.css";
+@import "./styles/deployment.css";
+@import "./styles/files.css";
+@import "./styles/advanced.css";
+@import "./styles/review.css";

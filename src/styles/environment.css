@@ -1,0 +1,220 @@
+.env-table .value-cell {
+  min-width: 300px;
+  max-width: 440px;
+}
+
+.env-table .default-cell {
+  max-width: 200px;
+}
+
+.variable-cell {
+  min-width: 210px;
+}
+
+.default-code {
+  display: block;
+  max-width: 180px;
+  padding: 3px 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #8498b1;
+  background: rgba(148, 163, 184, 0.055);
+  border-color: transparent;
+  font-size: 10px;
+  cursor: help;
+}
+
+/* ---------- Value editors ---------- */
+
+.value-input,
+.secret-editor,
+.json-editor,
+.boolean-editor {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.value-input input,
+.secret-editor input {
+  width: 100%;
+  height: 34px;
+  padding: 0 10px 0 31px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: rgba(5, 9, 16, 0.55);
+  color: var(--text-soft);
+  font-size: 11.5px;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    background 0.15s ease;
+}
+
+.value-input input::placeholder,
+.secret-editor input::placeholder {
+  color: #4f5f73;
+}
+
+.value-input input:focus,
+.secret-editor input:focus,
+.json-editor textarea:focus {
+  outline: none;
+  border-color: rgba(91, 157, 255, 0.45);
+  box-shadow: 0 0 0 3px rgba(91, 157, 255, 0.09);
+  background: rgba(5, 9, 16, 0.75);
+}
+
+.value-icon {
+  position: absolute;
+  left: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  color: #657d97;
+  pointer-events: none;
+}
+
+.value-input.is-modified input,
+.secret-editor.is-modified input,
+.json-editor.is-modified {
+  border-color: rgba(91, 157, 255, 0.35);
+  background: rgba(91, 157, 255, 0.045);
+}
+
+.value-input.is-modified .value-icon {
+  color: #8cb8ff;
+}
+
+.secret-editor input {
+  padding-right: 35px;
+}
+
+.input-adornment {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--subtle);
+}
+
+.input-adornment:hover {
+  background: rgba(148, 163, 184, 0.1);
+  color: var(--text-soft);
+}
+
+.json-editor {
+  align-items: flex-start;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
+  background: rgba(5, 9, 16, 0.55);
+  overflow: hidden;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.json-editor textarea {
+  width: 100%;
+  min-height: 58px;
+  padding: 8px 9px 8px 31px;
+  border: none;
+  background: transparent;
+  color: #b9d3ff;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.55;
+  resize: vertical;
+}
+
+.json-editor textarea:focus {
+  box-shadow: none;
+}
+
+.json-editor-icon {
+  position: absolute;
+  left: 9px;
+  top: 10px;
+  display: flex;
+  color: #7c6bd8;
+  pointer-events: none;
+}
+
+.boolean-editor {
+  gap: 7px;
+}
+
+.boolean-editor .select-input {
+  flex: 1;
+  width: 100%;
+  height: 34px;
+  min-width: 110px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background-position:
+    calc(100% - 16px) 14px,
+    calc(100% - 11px) 14px;
+}
+
+.boolean-editor .select-input.is-modified {
+  border-color: rgba(91, 157, 255, 0.35);
+  background-color: rgba(91, 157, 255, 0.045);
+}
+
+.inline-type-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 7px;
+  border: 1px solid var(--border);
+}
+
+.inline-type-icon.is-on {
+  color: #6ee7b7;
+  background: rgba(52, 211, 153, 0.07);
+}
+
+.inline-type-icon.is-off {
+  color: #8a9bb0;
+  background: rgba(148, 163, 184, 0.06);
+}
+
+.env-table td {
+  padding-top: 13px;
+  padding-bottom: 13px;
+}
+
+.env-table .cell-primary .badge {
+  margin-left: 1px;
+}
+
+@media (max-width: 760px) {
+  .env-table .value-cell {
+    min-width: 245px;
+  }
+
+  .env-table .default-cell {
+    max-width: 150px;
+  }
+
+  .variable-cell {
+    min-width: 180px;
+  }
+
+  .default-code {
+    max-width: 140px;
+  }
+}

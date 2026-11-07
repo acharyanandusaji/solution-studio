@@ -1,0 +1,151 @@
+.dep-stat-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.dep-types-card .stat-copy {
+  flex: 1;
+}
+
+.type-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.dependency-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dependency-card {
+  padding: 13px 14px;
+  border-radius: 11px;
+  border: 1px solid var(--border);
+  background: rgba(7, 12, 21, 0.34);
+}
+
+.dependency-card-main {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 26px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.dependency-block {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.dependency-label {
+  color: #526478;
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.dependency-block strong {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 620;
+  line-height: 1.35;
+}
+
+.dependency-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.dependency-meta code {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: #7389a2;
+  font-size: 9.5px;
+}
+
+.dependency-parent {
+  color: var(--subtle);
+  font-size: 9.5px;
+}
+
+.dependency-parent code {
+  font-size: 9px;
+  padding: 0 4px;
+  background: rgba(148, 163, 184, 0.07);
+  border-color: transparent;
+}
+
+.dependency-arrow {
+  color: #44586e;
+  justify-self: center;
+}
+
+.explain-list,
+.check-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.explain-list li,
+.check-list li {
+  position: relative;
+  padding-left: 18px;
+  color: var(--muted);
+  font-size: 11.5px;
+  line-height: 1.55;
+}
+
+.explain-list li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 6px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #5d7b9b;
+}
+
+.check-list li::before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  top: 0;
+  color: var(--emerald);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.explain-list strong,
+.check-list strong {
+  color: var(--text-soft);
+  font-weight: 640;
+}
+
+@media (max-width: 760px) {
+  .dep-stat-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .dependency-card-main {
+    grid-template-columns: 1fr;
+    gap: 9px;
+  }
+
+  .dependency-arrow {
+    transform: rotate(90deg);
+    justify-self: start;
+    margin-left: 4px;
+  }
+}
