@@ -118,10 +118,30 @@ const CUSTOMIZATIONS_XML = `<?xml version="1.0" encoding="utf-8"?>
       <connectionreferencedisplayname>Dataverse - Contoso</connectionreferencedisplayname>
       <connectionreferenceid>{B4B7E8E4-2222-4C3D-8E4F-000000000001}</connectionreferenceid>
     </connectionreference>
+    <connectionreference connectionreferencelogicalname="con_DataverseReference_Field">
+      <connectorid>/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps</connectorid>
+      <connectionreferencedisplayname>Dataverse - Field Service</connectionreferencedisplayname>
+      <connectionreferenceid>{B4B7E8E4-2222-4C3D-8E4F-000000000003}</connectionreferenceid>
+    </connectionreference>
+    <connectionreference connectionreferencelogicalname="con_DataverseReference_Approvals">
+      <connectorid>/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps</connectorid>
+      <connectionreferencedisplayname>Dataverse - Approval Flow</connectionreferencedisplayname>
+      <connectionreferenceid>{B4B7E8E4-2222-4C3D-8E4F-000000000004}</connectionreferenceid>
+    </connectionreference>
     <connectionreference connectionreferencelogicalname="con_Office365Reference">
       <connectorid>/providers/Microsoft.PowerApps/apis/shared_office365</connectorid>
       <connectionreferencedisplayname>Office 365 Outlook</connectionreferencedisplayname>
       <connectionreferenceid>{B4B7E8E4-2222-4C3D-8E4F-000000000002}</connectionreferenceid>
+    </connectionreference>
+    <connectionreference connectionreferencelogicalname="con_SharePointReference">
+      <connectorid>/providers/Microsoft.PowerApps/apis/shared_sharepointonline</connectorid>
+      <connectionreferencedisplayname>SharePoint - Inspection Docs</connectionreferencedisplayname>
+      <connectionreferenceid>{B4B7E8E4-2222-4C3D-8E4F-000000000005}</connectionreferenceid>
+    </connectionreference>
+    <connectionreference connectionreferencelogicalname="con_SharePointReference_Archive">
+      <connectorid>/providers/Microsoft.PowerApps/apis/shared_sharepointonline</connectorid>
+      <connectionreferencedisplayname>SharePoint - Archive</connectionreferencedisplayname>
+      <connectionreferenceid>{B4B7E8E4-2222-4C3D-8E4F-000000000006}</connectionreferenceid>
     </connectionreference>
   </connectionreferences>
 </ImportExportXml>`
@@ -156,7 +176,40 @@ export async function createSampleSolutionFile(): Promise<File> {
   )
   zip.file(
     'Workflows/InspectionApproval-22222222-3333-4444-5555-666666666666.json',
-    JSON.stringify({ name: 'Inspection Approval', category: 5, state: 'activated' }, null, 2),
+    JSON.stringify(
+      {
+        name: 'Inspection Approval',
+        category: 5,
+        state: 'activated',
+        properties: {
+          connectionReferences: {
+            con_DataverseReference: { connectionName: 'shared-x' },
+            con_Office365Reference: { connectionName: 'shared-y' },
+            con_SharePointReference: { connectionName: 'shared-z' },
+          },
+        },
+      },
+      null,
+      2,
+    ),
+  )
+  zip.file(
+    'Workflows/AssetInspection-33333333-4444-5555-6666-777777777777.json',
+    JSON.stringify(
+      {
+        name: 'Asset Inspection',
+        category: 5,
+        state: 'activated',
+        properties: {
+          connectionReferences: {
+            con_DataverseReference_Field: { connectionName: 'shared-x' },
+            con_SharePointReference_Archive: { connectionName: 'shared-z' },
+          },
+        },
+      },
+      null,
+      2,
+    ),
   )
   const blob = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE' })
   return new File([blob], 'Contoso.SampleSolution_1.0.0.42_unmanaged.zip', {

@@ -21,6 +21,10 @@ bytes never leave your machine.
   rebuilt `customizations.xml`.
 - **Connection references** — map logical references to target connection IDs. These IDs go into
   deployment settings, not into the solution ZIP.
+- **Connection consolidation** — group references by connector, apply one shared connection ID
+  (for example a service-principal connection) to an entire group, and review duplicate groups or
+  references that no cloud flow uses. Merging happens in deployment settings only; flow definitions
+  and the ZIP are left untouched.
 - **Deployment settings** — generate a PAC CLI-compatible `DeploymentSettings.json`, copy or download
   it, and import existing settings files.
 - **Review before download** — a change set and pre-import health report gate the download.

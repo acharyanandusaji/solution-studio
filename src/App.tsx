@@ -145,6 +145,14 @@ export default function App() {
     )
   }, [])
 
+  const setConnectionIds = useCallback((ids: Record<string, string>) => {
+    setEdits((current) =>
+      current
+        ? { ...current, connectionIds: { ...current.connectionIds, ...ids } }
+        : current,
+    )
+  }, [])
+
   const changes = useMemo(
     () => (pkg && edits ? buildChangeList(pkg, edits) : []),
     [pkg, edits],
@@ -312,6 +320,7 @@ export default function App() {
             pkg={pkg}
             edits={edits}
             onSetConnectionId={setConnectionId}
+            onSetConnectionIds={setConnectionIds}
             onOpenDeployment={() => setTab('deployment')}
             onNotifyCopied={(ok) =>
               toast(ok ? 'success' : 'error', ok ? 'Copied to clipboard' : 'Copy failed')
