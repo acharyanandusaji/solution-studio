@@ -278,7 +278,8 @@ export function AdvancedTab({
               <div>
                 <strong>Apply environment values</strong>
                 <p>
-                  Edited values are written into <code>environmentvariablevalues</code> in customizations.xml.
+                  Edited values are written into <code>environmentvariablevalues.json</code> when present,
+                  otherwise into <code>customizations.xml</code>.
                 </p>
               </div>
             </li>

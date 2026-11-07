@@ -89,8 +89,9 @@ export function EnvironmentTab({
         <div>
           <h1>Environment variables</h1>
           <p>
-            OOB and custom definitions pulled from <code>customizations.xml</code>. Values are written back
-            into the ZIP when you download.
+            Definitions are read from <code>customizations.xml</code> or from{' '}
+            <code>environmentvariabledefinitions/</code> sidecar files, including managed
+            exports. Values are written back into the ZIP when you download.
           </p>
         </div>
         <div className="heading-actions">
@@ -146,7 +147,7 @@ export function EnvironmentTab({
           <EmptyState
             icon={<Variable size={24} />}
             title="Nothing to configure"
-            description="Environment variable definitions live inside customizations.xml. This solution does not contain any, or the package was exported without customizations."
+            description="Environment variable definitions live in customizations.xml or environmentvariabledefinitions/ sidecar files. This solution does not contain any."
           />
         </SectionCard>
       ) : (

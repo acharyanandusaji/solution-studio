@@ -15,10 +15,13 @@ import type {
 } from '../types'
 import {
   parseConnectionReferences,
+  parseEnvironmentVariableDefinitionFile,
   parseEnvironmentVariables,
+  parseEnvironmentVariableValueFile,
   parseSolutionXml,
   removeMissingDependencies,
   setEnvironmentVariableValue,
+  setEnvironmentVariableValueFile,
   setManagedFlag,
   setSolutionVersion,
   validateXml,
@@ -118,6 +121,56 @@ export async function loadSolutionPackage(file: File): Promise<SolutionPackage> 
     }
   }
 
+  const environmentVariableValuePaths: Record<string, string> = {}
+  const envFolderPath =
+    /^(?:.*\/)?environmentvariabledefinitions\/([^/]+)\/(environmentvariabledefinition\.xml|environmentvariablevalues\.json)$/i
+  const definitionFiles = allPaths.filter((path) => {
+    const match = envFolderPath.exec(path)
+    return match?.[2]?.toLowerCase() === 'environmentvariabledefinition.xml'
+  })
+  const valueFiles = allPaths.filter((path) => {
+    const match = envFolderPath.exec(path)
+    return match?.[2]?.toLowerCase() === 'environmentvariablevalues.json'
+  })
+
+  const variablesBySchema = new Map(
+    environmentVariables.map((variable) => [variable.schemaName.toLowerCase(), variable]),
+  )
+
+  for (const path of definitionFiles) {
+    const folder = envFolderPath.exec(path)?.[1]
+    if (!folder || variablesBySchema.has(folder.toLowerCase())) continue
+    try {
+      const xml = stripBom(await zip.file(path)!.async('string'))
+      const variable = parseEnvironmentVariableDefinitionFile(xml)
+      if (!variable) continue
+      const variableFolder = variable.schemaName.toLowerCase()
+      if (variablesBySchema.has(variableFolder)) continue
+      variablesBySchema.set(variableFolder, variable)
+      environmentVariables.push(variable)
+    } catch {
+      // A malformed sidecar definition should not block the whole package.
+    }
+  }
+
+  for (const path of valueFiles) {
+    const folder = envFolderPath.exec(path)?.[1]
+    if (!folder) continue
+    const variable = variablesBySchema.get(folder.toLowerCase())
+    if (!variable) continue
+    try {
+      const text = stripBom(await zip.file(path)!.async('string'))
+      const stored = parseEnvironmentVariableValueFile(text)
+      environmentVariableValuePaths[variable.schemaName] = path
+      if (stored.hasValue) {
+        variable.currentValue = stored.value
+        variable.explicitValue = true
+      }
+    } catch {
+      // Keep the default value when the sidecar cannot be read.
+    }
+  }
+
   const files: ZipFileInfo[] = allPaths
     .map((path) => {
       const entry = zip.files[path]
@@ -170,6 +223,7 @@ export async function loadSolutionPackage(file: File): Promise<SolutionPackage> 
     customizationsPath: customizationsPath ?? '',
     solution,
     environmentVariables,
+    environmentVariableValuePaths,
     connectionReferences,
     files,
     loadedAt: new Date().toISOString(),
@@ -265,26 +319,64 @@ export async function buildEditedPackage(
   }
 
   let customizationsXml = edits.customizationsXmlOverride ?? pkg.customizationsXml
+  let customizationsChanged = false
   let appliedEnvironmentVariables = 0
-  if (customizationsXml) {
-    for (const [schemaName, value] of Object.entries(edits.envVarValues)) {
-      const definition = pkg.environmentVariables.find(
-        (variable) => variable.schemaName === schemaName,
-      )
-      if (!definition) continue
+
+  const definitionPathPattern =
+    /^(?:.*\/)?environmentvariabledefinitions\/([^/]+)\/environmentvariabledefinition\.xml$/i
+  const definitionPaths = new Map<string, string>()
+  for (const path of Object.keys(pkg.zip.files)) {
+    const match = definitionPathPattern.exec(path)
+    if (match) definitionPaths.set(match[1].toLowerCase(), path)
+  }
+
+  // Modern exports store values in environmentvariablevalues.json next to the
+  // definition. Prefer that file, and only fall back to customizations.xml when
+  // the variable has no sidecar definition folder.
+  const valueFileOverrides = new Map<string, string>()
+  for (const [schemaName, value] of Object.entries(edits.envVarValues)) {
+    const definition = pkg.environmentVariables.find(
+      (variable) => variable.schemaName === schemaName,
+    )
+    if (!definition) continue
+
+    const definitionPath = definitionPaths.get(schemaName.toLowerCase())
+    const folderPath = definitionPath
+      ? definitionPath.replace(/[^/]+$/i, '')
+      : ''
+    const valuePath =
+      pkg.environmentVariableValuePaths[schemaName] ||
+      (folderPath ? `${folderPath}environmentvariablevalues.json` : '')
+
+    if (valuePath) {
+      let existing = ''
+      const entry = pkg.zip.file(valuePath)
+      if (entry) {
+        try {
+          existing = stripBom(await entry.async('string'))
+        } catch {
+          existing = ''
+        }
+      }
+      valueFileOverrides.set(valuePath, setEnvironmentVariableValueFile(existing, value))
+      appliedEnvironmentVariables += 1
+      continue
+    }
+
+    if (customizationsXml) {
       customizationsXml = setEnvironmentVariableValue(customizationsXml, schemaName, value)
+      customizationsChanged = true
       appliedEnvironmentVariables += 1
     }
+  }
+
+  if (customizationsChanged) {
     const customizationsValidation = validateXml(customizationsXml)
     if (!customizationsValidation.valid) {
       throw new Error(
         `The edited customizations.xml is not valid XML. ${customizationsValidation.error}`,
       )
     }
-  } else if (Object.keys(edits.envVarValues).length > 0) {
-    throw new Error(
-      'Environment variable values were edited, but this solution has no customizations.xml.',
-    )
   }
 
   const output = new JSZip()
@@ -318,6 +410,14 @@ export async function buildEditedPackage(
         comment: entry.comment,
         compression: 'DEFLATE',
       })
+    } else if (valueFileOverrides.has(path)) {
+      output.file(path, valueFileOverrides.get(path)!, {
+        date: entry.date,
+        unixPermissions: entry.unixPermissions,
+        dosPermissions: entry.dosPermissions,
+        comment: entry.comment,
+        compression: 'DEFLATE',
+      })
     } else {
       const data = await entry.async('uint8array')
       output.file(path, data, {
@@ -328,6 +428,12 @@ export async function buildEditedPackage(
         compression: entry.options?.compression ?? 'DEFLATE',
         binary: true,
       })
+    }
+  }
+
+  for (const [path, text] of valueFileOverrides) {
+    if (!pkg.zip.files[path]) {
+      output.file(path, text, { compression: 'DEFLATE' })
     }
   }
 

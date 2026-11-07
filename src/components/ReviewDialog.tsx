@@ -188,7 +188,7 @@ export function ReviewDialog({
           <Info size={19} />
           <div>
             <strong>
-              {envCount} environment value{envCount === 1 ? '' : 's'} will be written to customizations.xml.
+              {envCount} environment value{envCount === 1 ? '' : 's'} will be written to customizations.xml or the environment variable value files.
             </strong>
             <p>Make sure these values are correct for the target environment, or use DeploymentSettings.json instead.</p>
           </div>

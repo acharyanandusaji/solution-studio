@@ -25,12 +25,22 @@ export function buildHealthReport(
       detail: 'Solution customizations and components were parsed successfully.',
       category: 'package',
     })
+  } else if (pkg.environmentVariables.length > 0) {
+    add({
+      id: 'customizations-xml',
+      label: 'Environment variables use sidecar files',
+      status: 'pass',
+      detail:
+        'This package has no customizations.xml. Definitions and values are read from environmentvariabledefinitions/ sidecar files instead.',
+      category: 'package',
+    })
   } else {
     add({
       id: 'customizations-xml',
       label: 'customizations.xml is absent',
       status: 'info',
-      detail: 'This package has no customizations.xml. Environment variables cannot be edited.',
+      detail:
+        'This package has no customizations.xml, so customizations-based components cannot be inspected.',
       category: 'package',
     })
   }

@@ -3,10 +3,13 @@ import {
   bumpVersion,
   isValidVersion,
   parseConnectionReferences,
+  parseEnvironmentVariableDefinitionFile,
   parseEnvironmentVariables,
+  parseEnvironmentVariableValueFile,
   parseSolutionXml,
   removeMissingDependencies,
   setEnvironmentVariableValue,
+  setEnvironmentVariableValueFile,
   setManagedFlag,
   setSolutionVersion,
 } from './xml'
@@ -147,6 +150,84 @@ describe('environment variables', () => {
     const updated = setEnvironmentVariableValue(customizationsXml, 'con_Enabled', 'false')
     expect(updated).toContain('<environmentvariablevalue schemaname="con_Enabled">')
     expect(updated).toContain('<value>false</value>')
+  })
+})
+
+describe('environment variable sidecar files', () => {
+  const definitionXml = `<?xml version="1.0" encoding="utf-8"?>
+<environmentvariabledefinition schemaname="con_ApiBaseUrl">
+  <displayname>
+    <label description="API base URL" languagecode="1033" />
+  </displayname>
+  <description>
+    <label description="Root endpoint for the API." languagecode="1033" />
+  </description>
+  <type>100000000</type>
+  <defaultvalue>https://dev.example</defaultvalue>
+</environmentvariabledefinition>`
+
+  const valueJson = JSON.stringify({
+    environmentvariablevalues: {
+      environmentvariablevalue: {
+        '@environmentvariablevalueid': '33333333-3333-3333-3333-333333333333',
+        iscustomizable: '1',
+        value: 'https://prod.example',
+      },
+    },
+  })
+
+  it('reads a definition from its own file', () => {
+    const variable = parseEnvironmentVariableDefinitionFile(definitionXml)!
+    expect(variable.schemaName).toBe('con_ApiBaseUrl')
+    expect(variable.displayName).toBe('API base URL')
+    expect(variable.description).toBe('Root endpoint for the API.')
+    expect(variable.type).toBe(100000000)
+    expect(variable.defaultValue).toBe('https://dev.example')
+    expect(variable.currentValue).toBe('https://dev.example')
+    expect(variable.explicitValue).toBe(false)
+  })
+
+  it('reads a value from environmentvariablevalues.json', () => {
+    expect(parseEnvironmentVariableValueFile(valueJson)).toEqual({
+      hasValue: true,
+      value: 'https://prod.example',
+    })
+  })
+
+  it('treats a value file without a value as empty', () => {
+    expect(
+      parseEnvironmentVariableValueFile(
+        JSON.stringify({
+          environmentvariablevalues: {
+            environmentvariablevalue: {
+              '@environmentvariablevalueid': '33333333-3333-3333-3333-333333333333',
+            },
+          },
+        }),
+      ),
+    ).toEqual({ hasValue: false, value: '' })
+    expect(parseEnvironmentVariableValueFile('not json')).toEqual({
+      hasValue: false,
+      value: '',
+    })
+  })
+
+  it('writes the value back and preserves the record id', () => {
+    const updated = setEnvironmentVariableValueFile(valueJson, 'https://staging.example?a=1&b=2')
+    const parsed = JSON.parse(updated)
+    expect(parsed.environmentvariablevalues.environmentvariablevalue.value).toBe(
+      'https://staging.example?a=1&b=2',
+    )
+    expect(parsed.environmentvariablevalues.environmentvariablevalue['@environmentvariablevalueid']).toBe(
+      '33333333-3333-3333-3333-333333333333',
+    )
+  })
+
+  it('creates the container and record when the value file is empty', () => {
+    const updated = setEnvironmentVariableValueFile('', 'hello')
+    expect(JSON.parse(updated)).toEqual({
+      environmentvariablevalues: { environmentvariablevalue: { value: 'hello' } },
+    })
   })
 })
 

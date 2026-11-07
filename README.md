@@ -17,8 +17,9 @@ bytes never leave your machine.
   apply a version from local download history.
 - **Missing dependencies** — review every `<MissingDependency>` entry and optionally strip the whole
   `<MissingDependencies>` block on download. The original package is never modified.
-- **Environment variables** — see defaults and current values, edit values, and write them into the
-  rebuilt `customizations.xml`.
+- **Environment variables** — see defaults and current values, edit values, and write them back into
+  `customizations.xml` or the modern `environmentvariabledefinitions/<name>/environmentvariablevalues.json`
+  sidecar files. Managed exports are supported.
 - **Connection references** — map logical references to target connection IDs. These IDs go into
   deployment settings, not into the solution ZIP.
 - **Connection consolidation** — group references by connector, apply one shared connection ID
@@ -34,8 +35,8 @@ bytes never leave your machine.
 ## Safety model
 
 The uploaded ZIP is kept in memory and never mutated. Structured edits live in React state and are
-only applied when you build a new ZIP. Files other than `solution.xml` and `customizations.xml` are
-copied into the output archive unchanged.
+only applied when you build a new ZIP. Files other than `solution.xml`, `customizations.xml` and
+environment variable value files are copied into the output archive unchanged.
 
 Two deliberate limitations are surfaced in the UI:
 
@@ -93,8 +94,9 @@ Pages, Azure Static Web Apps, an internal web server, and so on).
 1. Start from the original XML or an applied raw XML override.
 2. Write the target version and managed flag into `solution.xml`.
 3. Remove `<MissingDependencies>` when requested.
-4. Write edited environment variable values into `customizations.xml`.
-5. Validate both XML documents.
+4. Write edited environment variable values into each `environmentvariablevalues.json` sidecar, or
+   into `customizations.xml` when no sidecar exists.
+5. Validate the edited XML documents.
 6. Copy every other ZIP entry into a new archive and download it as
    `<uniqueName>_<version>_<managed|unmanaged>.zip`.
 

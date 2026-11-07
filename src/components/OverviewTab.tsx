@@ -112,7 +112,7 @@ export function OverviewTab({
         <StatCard
           label="Environment variables"
           value={pkg.environmentVariables.length}
-          hint={modifiedEnvVars > 0 ? `${modifiedEnvVars} edited in this session` : 'Definitions in customizations.xml'}
+          hint={modifiedEnvVars > 0 ? `${modifiedEnvVars} edited in this session` : 'Definitions and values detected'}
           icon={<Variable size={19} />}
           tone="violet"
           onClick={() => onTab('environment')}

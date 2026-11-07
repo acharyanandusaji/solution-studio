@@ -253,15 +253,32 @@ export function parseSolutionXml(xml: string): SolutionInfo {
   }
 }
 
-export function parseEnvironmentVariables(xml: string | undefined): EnvironmentVariable[] {
-  if (!xml) return []
-  const root = normalizedRoot(xml)
-  const definitions = asArray(
-    child(child(root, 'environmentvariabledefinitions'), 'environmentvariabledefinition'),
-  )
-  if (definitions.length === 0) return []
+function mapEnvironmentVariableDefinition(definition: unknown): EnvironmentVariable | null {
+  const schemaName =
+    attr(definition, 'schemaname') ??
+    attr(definition, 'schemaName') ??
+    textOf(child(definition, 'schemaname'))
+  if (!schemaName) return null
+  const rawType = Number(textOf(child(definition, 'type')) || 0)
+  const type = Number.isNaN(rawType) ? 0 : rawType
+  const defaultValue = textOf(child(definition, 'defaultvalue'))
+  return {
+    schemaName,
+    displayName: displayValue(child(definition, 'displayname')) || schemaName,
+    description: displayValue(child(definition, 'description')) || undefined,
+    type,
+    typeName: envVarTypeName(type),
+    defaultValue,
+    currentValue: defaultValue,
+    explicitValue: false,
+    secret: type === 100000005,
+  }
+}
 
-  const valueMap = new Map<string, string>()
+function readEnvironmentVariableValues(
+  root: Record<string, unknown>,
+  valueMap: Map<string, string>,
+): void {
   const valueEntries = asArray(
     child(child(root, 'environmentvariablevalues'), 'environmentvariablevalue'),
   )
@@ -273,32 +290,126 @@ export function parseEnvironmentVariables(xml: string | undefined): EnvironmentV
     if (!schemaName) continue
     valueMap.set(schemaName.toLowerCase(), textOf(child(entry, 'value')))
   }
+}
+
+export function parseEnvironmentVariables(xml: string | undefined): EnvironmentVariable[] {
+  if (!xml) return []
+  const root = normalizedRoot(xml)
+  const definitions = asArray(
+    child(child(root, 'environmentvariabledefinitions'), 'environmentvariabledefinition'),
+  )
+  if (definitions.length === 0) return []
+
+  const valueMap = new Map<string, string>()
+  readEnvironmentVariableValues(root, valueMap)
 
   return definitions
-    .map((definition): EnvironmentVariable | null => {
-      const schemaName =
-        attr(definition, 'schemaname') ??
-        attr(definition, 'schemaName') ??
-        textOf(child(definition, 'schemaname'))
-      if (!schemaName) return null
-      const rawType = Number(textOf(child(definition, 'type')) || 0)
-      const type = Number.isNaN(rawType) ? 0 : rawType
-      const defaultValue = textOf(child(definition, 'defaultvalue'))
-      const hasValue = valueMap.has(schemaName.toLowerCase())
-      return {
-        schemaName,
-        displayName:
-          displayValue(child(definition, 'displayname')) || schemaName,
-        description: displayValue(child(definition, 'description')) || undefined,
-        type,
-        typeName: envVarTypeName(type),
-        defaultValue,
-        currentValue: hasValue ? valueMap.get(schemaName.toLowerCase()) ?? '' : defaultValue,
-        explicitValue: hasValue,
-        secret: type === 100000005,
+    .map((definition) => {
+      const variable = mapEnvironmentVariableDefinition(definition)
+      if (!variable) return null
+      const hasValue = valueMap.has(variable.schemaName.toLowerCase())
+      if (hasValue) {
+        variable.currentValue = valueMap.get(variable.schemaName.toLowerCase()) ?? ''
+        variable.explicitValue = true
       }
+      return variable
     })
     .filter((item): item is EnvironmentVariable => item !== null)
+}
+
+/**
+ * Environment variable definitions can live in their own
+ * `environmentvariabledefinitions/<name>/environmentvariabledefinition.xml`
+ * file instead of customizations.xml. The root element may be the definition
+ * itself or the `environmentvariabledefinitions` container.
+ */
+export function parseEnvironmentVariableDefinitionFile(
+  xml: string,
+): EnvironmentVariable | null {
+  if (!xml.trim()) return null
+  const parsed = parseXml(xml)
+  const root = child(parsed, 'ImportExportXml') ?? parsed
+  const node =
+    child(root, 'environmentvariabledefinition') ??
+    child(child(root, 'environmentvariabledefinitions'), 'environmentvariabledefinition') ??
+    root
+  return mapEnvironmentVariableDefinition(node)
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null
+  return value as Record<string, unknown>
+}
+
+function findJsonKey(record: Record<string, unknown>, name: string): string | undefined {
+  return Object.keys(record).find((key) => key.toLowerCase() === name.toLowerCase())
+}
+
+function stringifyEnvironmentValue(value: unknown): string {
+  if (value === undefined || value === null) return ''
+  if (typeof value === 'string') return value
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value)
+  try {
+    return JSON.stringify(value)
+  } catch {
+    return String(value)
+  }
+}
+
+export interface EnvironmentVariableValueFile {
+  hasValue: boolean
+  value: string
+}
+
+/**
+ * Reads `environmentvariablevalues.json` from a modern solution export:
+ * `{ "environmentvariablevalues": { "environmentvariablevalue": { "value": "..." } } }`
+ * Older exports may omit the value or the record id entirely.
+ */
+export function parseEnvironmentVariableValueFile(
+  text: string,
+): EnvironmentVariableValueFile {
+  try {
+    const parsed = asRecord(JSON.parse(text))
+    if (!parsed) return { hasValue: false, value: '' }
+    const container =
+      asRecord(child(parsed, 'environmentvariablevalues')) ?? parsed
+    const record =
+      asRecord(child(container, 'environmentvariablevalue')) ?? container
+    const valueKey = findJsonKey(record, 'value')
+    if (!valueKey) return { hasValue: false, value: '' }
+    return { hasValue: true, value: stringifyEnvironmentValue(record[valueKey]) }
+  } catch {
+    return { hasValue: false, value: '' }
+  }
+}
+
+export function setEnvironmentVariableValueFile(text: string, value: string): string {
+  let parsed: Record<string, unknown>
+  try {
+    parsed = asRecord(JSON.parse(text)) ?? {}
+  } catch {
+    parsed = {}
+  }
+
+  let container = asRecord(child(parsed, 'environmentvariablevalues'))
+  if (!container) {
+    container = {}
+    const containerKey = findJsonKey(parsed, 'environmentvariablevalues') ?? 'environmentvariablevalues'
+    parsed[containerKey] = container
+  }
+
+  let record = asRecord(child(container, 'environmentvariablevalue'))
+  if (!record) {
+    record = {}
+    const recordKey =
+      findJsonKey(container, 'environmentvariablevalue') ?? 'environmentvariablevalue'
+    container[recordKey] = record
+  }
+
+  const valueKey = findJsonKey(record, 'value') ?? 'value'
+  record[valueKey] = value
+  return `${JSON.stringify(parsed, null, 2)}\n`
 }
 
 export function parseConnectionReferences(xml: string | undefined): ConnectionReference[] {

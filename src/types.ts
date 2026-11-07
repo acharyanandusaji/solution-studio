@@ -97,6 +97,8 @@ export interface SolutionPackage {
   customizationsPath: string
   solution: SolutionInfo
   environmentVariables: EnvironmentVariable[]
+  /** schema name -> ZIP path of its environmentvariablevalues.json, when exported separately */
+  environmentVariableValuePaths: Record<string, string>
   connectionReferences: ConnectionReference[]
   files: ZipFileInfo[]
   loadedAt: string
