@@ -7,10 +7,13 @@ metadata, fix the usual deployment blockers, then download a rebuilt ZIP and a m
 Everything runs in the browser. There is no backend, database, account, or telemetry. Your solution
 bytes never leave your machine.
 
+**Live app:** https://acharyanandusaji.github.io/solution-studio/
+
 ## What it does
 
 - **Package inspection** — reads `solution.xml` and `customizations.xml`, the publisher, root
-  components, ZIP entries, environment variables and connection references.- **Version editing** — edit `major.minor.build.revision` directly, use one-click bump buttons, or
+  components, ZIP entries, environment variables and connection references.
+- **Version editing** — edit `major.minor.build.revision` directly, use one-click bump buttons, or
   apply a version from local download history.
 - **Missing dependencies** — review every `<MissingDependency>` entry and optionally strip the whole
   `<MissingDependencies>` block on download. The original package is never modified.
