@@ -434,6 +434,10 @@ export function parseConnectionReferences(xml: string | undefined): ConnectionRe
       attr(reference, 'connectorid') ||
       '',
     connectionId: textOf(child(reference, 'connectionid')),
+    id:
+      textOf(child(reference, 'connectionreferenceid')) ||
+      attr(reference, 'connectionreferenceid') ||
+      undefined,
     description: displayValue(child(reference, 'description')) || undefined,
   }))
 }
@@ -469,6 +473,74 @@ export function removeMissingDependencies(xml: string): string {
   return xml
     .replace(/[ \t]*<MissingDependencies\b[^>]*>[\s\S]*?<\/MissingDependencies>[ \t]*\r?\n?/i, '')
     .replace(/[ \t]*<MissingDependencies\b[^>]*\/>[ \t]*\r?\n?/i, '')
+}
+
+function normalizeGuid(value: string): string {
+  return value.trim().replace(/[{}]/g, '').toLowerCase()
+}
+
+/**
+ * Removes the `<connectionreference>` blocks for the given logical names.
+ * Handles both the attribute form used by solution exports and the older
+ * child-element form.
+ */
+export function removeConnectionReferences(
+  xml: string,
+  logicalNames: string[],
+): string {
+  const names = [...new Set(logicalNames.map((name) => name.trim()).filter(Boolean))]
+  if (!xml || names.length === 0) return xml
+  const namePattern = names.map(escapeRegExp).join('|')
+
+  const attributePattern = new RegExp(
+    `[ \\t]*<connectionreference\\b(?=[^>]*\\bconnectionreferencelogicalname\\s*=\\s*["'](?:${namePattern})["'])[^>]*(?:\\/>|>[\\s\\S]*?<\\/connectionreference>)[ \\t]*\\r?\\n?`,
+    'gi',
+  )
+  let result = xml.replace(attributePattern, '')
+
+  const childPattern = new RegExp(
+    `[ \\t]*<connectionreference\\b(?![^>]*\\bconnectionreferencelogicalname\\s*=)[^>]*>[\\s\\S]*?<connectionreferencelogicalname>\\s*(?:${namePattern})\\s*<\\/connectionreferencelogicalname>[\\s\\S]*?<\\/connectionreference>[ \\t]*\\r?\\n?`,
+    'gi',
+  )
+  result = result.replace(childPattern, '')
+  return result
+}
+
+/**
+ * Removes `<RootComponent>` entries of a component type whose id or schema
+ * name matches. Used to drop root components for merged connection references.
+ */
+export function removeRootComponents(
+  xml: string,
+  options: { type: number; ids?: string[]; schemaNames?: string[] },
+): string {
+  const ids = [...new Set((options.ids ?? []).map(normalizeGuid).filter(Boolean))]
+  const schemaNames = [
+    ...new Set((options.schemaNames ?? []).map((name) => name.trim()).filter(Boolean)),
+  ]
+  if (!xml || (ids.length === 0 && schemaNames.length === 0)) return xml
+
+  const conditions: string[] = []
+  if (ids.length > 0) {
+    conditions.push(
+      `(?=[^>]*\\bid\\s*=\\s*["']\\{?(?:${ids.map(escapeRegExp).join('|')})\\}?["'])`,
+    )
+  }
+  if (schemaNames.length > 0) {
+    conditions.push(
+      `(?=[^>]*\\bschemaName\\s*=\\s*["'](?:${schemaNames
+        .map(escapeRegExp)
+        .join('|')})["'])`,
+    )
+  }
+
+  const pattern = new RegExp(
+    `[ \\t]*<RootComponent\\b(?=[^>]*\\btype\\s*=\\s*["']${options.type}["'])(?:${conditions.join(
+      '|',
+    )})[^>]*(?:\\/>|>[\\s\\S]*?<\\/RootComponent>)[ \\t]*\\r?\\n?`,
+    'gi',
+  )
+  return xml.replace(pattern, '')
 }
 
 export function setEnvironmentVariableValue(

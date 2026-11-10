@@ -1,4 +1,8 @@
-import { effectiveConnectionId, effectiveEnvironmentValue } from './package'
+import {
+  effectiveConnectionId,
+  effectiveConnectionReferences,
+  effectiveEnvironmentValue,
+} from './package'
 import { isValidVersion, validateXml } from './xml'
 import type { HealthReport, SolutionEdits, SolutionPackage, ValidationCheck } from '../types'
 
@@ -175,8 +179,9 @@ export function buildHealthReport(
     }
   }
 
+  const effectiveConnections = effectiveConnectionReferences(pkg, edits)
   if (pkg.connectionReferences.length > 0) {
-    const emptyConnections = pkg.connectionReferences.filter(
+    const emptyConnections = effectiveConnections.filter(
       (reference) => effectiveConnectionId(edits, reference.logicalName).trim() === '',
     )
     if (emptyConnections.length > 0) {
@@ -184,7 +189,7 @@ export function buildHealthReport(
         id: 'connection-refs',
         label: 'Connection IDs are not configured',
         status: 'warn',
-        detail: `${emptyConnections.length} of ${pkg.connectionReferences.length} connection references have no target connection ID. Fill these in the Deployment Settings tab.`,
+        detail: `${emptyConnections.length} of ${effectiveConnections.length} connection references have no target connection ID. Fill these in the Deployment Settings tab.`,
         category: 'deployment',
       })
     } else {
@@ -192,9 +197,35 @@ export function buildHealthReport(
         id: 'connection-refs',
         label: 'Connection references are configured',
         status: 'pass',
-        detail: `${pkg.connectionReferences.length} connection reference${
-          pkg.connectionReferences.length === 1 ? '' : 's'
+        detail: `${effectiveConnections.length} connection reference${
+          effectiveConnections.length === 1 ? '' : 's'
         } ready for DeploymentSettings.json.`,
+        category: 'deployment',
+      })
+    }
+  }
+
+  const mergedConnections = pkg.connectionReferences.filter((reference) => {
+    const survivor = edits.connectionMerges?.[reference.logicalName]
+    return Boolean(survivor && survivor !== reference.logicalName)
+  })
+  if (mergedConnections.length > 0) {
+    add({
+      id: 'connection-merges',
+      label: 'Connection references will be merged',
+      status: 'info',
+      detail: `${mergedConnections.length} reference${
+        mergedConnections.length === 1 ? '' : 's'
+      } will be removed from the rebuilt ZIP and their cloud flows will use the surviving reference.`,
+      category: 'deployment',
+    })
+    if (pkg.hasCanvasApps) {
+      add({
+        id: 'connection-merges-canvas',
+        label: 'Canvas apps cannot be rewritten',
+        status: 'warn',
+        detail:
+          'This package contains canvas apps (.msapp). Their binary definitions cannot be updated, so check their connections after import.',
         category: 'deployment',
       })
     }

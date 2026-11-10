@@ -6,6 +6,7 @@ import {
   Download,
   FileArchive,
   GitCompareArrows,
+  GitMerge,
   Info,
   Link2Off,
   ShieldAlert,
@@ -42,10 +43,19 @@ export function ReviewDialog({
   downloading: boolean
 }) {
   const [acknowledged, setAcknowledged] = useState(false)
+  const [mergeAcknowledged, setMergeAcknowledged] = useState(false)
 
   const needsDependencyAck =
     edits.removeMissingDependencies && pkg.solution.missingDependencies.length > 0
-  const blocking = health.failed > 0 || (needsDependencyAck && !acknowledged)
+  const mergedCount = pkg.connectionReferences.filter((reference) => {
+    const survivor = edits.connectionMerges?.[reference.logicalName]
+    return Boolean(survivor && survivor !== reference.logicalName)
+  }).length
+  const needsMergeAck = mergedCount > 0
+  const blocking =
+    health.failed > 0 ||
+    (needsDependencyAck && !acknowledged) ||
+    (needsMergeAck && !mergeAcknowledged)
   const fileName = outputFileName(pkg, edits)
   const managedChanged = edits.managed !== pkg.solution.managed
   const depsRemoved = edits.removeMissingDependencies && pkg.solution.missingDependencies.length > 0
@@ -65,7 +75,9 @@ export function ReviewDialog({
               ? 'Fix failed checks before downloading.'
               : needsDependencyAck && !acknowledged
                 ? 'Acknowledge dependency removal to continue.'
-                : `Original: ${formatBytes(Math.max(pkg.fileSize, 0))} → rebuilt ZIP`}
+                : needsMergeAck && !mergeAcknowledged
+                  ? 'Acknowledge the connection merge to continue.'
+                  : `Original: ${formatBytes(Math.max(pkg.fileSize, 0))} → rebuilt ZIP`}
           </span>
           <Button variant="ghost" onClick={onClose} disabled={downloading}>
             Cancel
@@ -108,6 +120,11 @@ export function ReviewDialog({
             <Badge tone={depsRemoved ? 'danger' : 'neutral'}>
               {depsRemoved ? 'Dependencies removed' : 'Dependencies preserved'}
             </Badge>
+            {mergedCount > 0 ? (
+              <Badge tone="info" dot>
+                {mergedCount} connection{mergedCount === 1 ? '' : 's'} merged
+              </Badge>
+            ) : null}
           </div>
         </div>
       </div>
@@ -183,6 +200,21 @@ export function ReviewDialog({
         </div>
       ) : null}
 
+      {needsMergeAck ? (
+        <div className="notice notice-warning review-notice">
+          <GitMerge size={19} />
+          <div>
+            <strong>
+              {mergedCount} connection reference{mergedCount === 1 ? '' : 's'} will be removed and replaced.
+            </strong>
+            <p>
+              Cloud flow definitions are rewritten to use the surviving reference. References on other
+              connectors are untouched. Canvas apps (.msapp) cannot be rewritten, so check them after import.
+            </p>
+          </div>
+        </div>
+      ) : null}
+
       {envCount > 0 ? (
         <div className="notice notice-info review-notice">
           <Info size={19} />
@@ -225,6 +257,23 @@ export function ReviewDialog({
         </label>
       ) : null}
 
+      {needsMergeAck ? (
+        <label className="ack-row">
+          <input
+            type="checkbox"
+            checked={mergeAcknowledged}
+            onChange={(event) => setMergeAcknowledged(event.target.checked)}
+          />
+          <span>
+            <strong>I understand the rebuilt ZIP will contain only the surviving connection reference.</strong>
+            <span>
+              Verify the rewritten flows and any canvas apps in the target environment after import.
+            </span>
+          </span>
+          <AlertTriangle size={16} />
+        </label>
+      ) : null}
+
       {health.failed > 0 ? (
         <div className="review-blocked">
           <XCircle size={18} />
@@ -232,7 +281,7 @@ export function ReviewDialog({
         </div>
       ) : null}
 
-      {!needsDependencyAck && health.failed === 0 ? (
+      {!needsDependencyAck && !needsMergeAck && health.failed === 0 ? (
         <div className="review-safe">
           <Link2Off size={16} />
           <span>Original package remains untouched. Your download is a separate, newly generated ZIP.</span>

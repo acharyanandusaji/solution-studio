@@ -14,12 +14,19 @@ import type {
   ZipFileInfo,
 } from '../types'
 import {
+  effectiveConnectionReferences as filterConnectionReferences,
+  isWorkflowJson,
+  replaceConnectionReferenceNames,
+} from './connections'
+import {
   parseConnectionReferences,
   parseEnvironmentVariableDefinitionFile,
   parseEnvironmentVariables,
   parseEnvironmentVariableValueFile,
   parseSolutionXml,
+  removeConnectionReferences,
   removeMissingDependencies,
+  removeRootComponents,
   setEnvironmentVariableValue,
   setEnvironmentVariableValueFile,
   setManagedFlag,
@@ -246,6 +253,7 @@ export function initialEdits(pkg: SolutionPackage): SolutionEdits {
         reference.connectionId,
       ]),
     ),
+    connectionMerges: {},
   }
 }
 
@@ -270,6 +278,17 @@ export function effectiveConnectionId(
   return edits.connectionIds[logicalName] ?? ''
 }
 
+/**
+ * Connection references that remain after structural merges. Merged-away
+ * references are removed from the ZIP and from deployment settings.
+ */
+export function effectiveConnectionReferences(
+  pkg: SolutionPackage,
+  edits: SolutionEdits,
+): ConnectionReference[] {
+  return filterConnectionReferences(pkg.connectionReferences, edits.connectionMerges)
+}
+
 export function generateDeploymentSettings(
   pkg: SolutionPackage,
   edits: SolutionEdits,
@@ -279,7 +298,7 @@ export function generateDeploymentSettings(
       SchemaName: variable.schemaName,
       Value: effectiveEnvironmentValue(pkg, edits, variable.schemaName),
     })),
-    ConnectionReferences: pkg.connectionReferences.map((reference) => ({
+    ConnectionReferences: effectiveConnectionReferences(pkg, edits).map((reference) => ({
       LogicalName: reference.logicalName,
       ConnectionId: effectiveConnectionId(edits, reference.logicalName),
       ConnectorId: reference.connectorId,
@@ -294,6 +313,8 @@ export interface BuildResult {
   solutionXml: string
   customizationsXml: string
   appliedEnvironmentVariables: number
+  mergedConnectionReferences: number
+  rewrittenFlowFiles: number
 }
 
 export function outputFileName(pkg: SolutionPackage, edits: SolutionEdits): string {
@@ -306,11 +327,44 @@ export async function buildEditedPackage(
   pkg: SolutionPackage,
   edits: SolutionEdits,
 ): Promise<BuildResult> {
+  // Flatten merge chains so every merged name resolves to the final survivor.
+  const referencesByName = new Map(
+    pkg.connectionReferences.map((reference) => [reference.logicalName, reference]),
+  )
+  const rawMerges = edits.connectionMerges ?? {}
+  const resolveTarget = (logicalName: string): string => {
+    let current = logicalName
+    const seen = new Set<string>()
+    while (rawMerges[current] && !seen.has(current)) {
+      seen.add(current)
+      current = rawMerges[current]
+    }
+    return current
+  }
+  const connectionMerges: Record<string, string> = {}
+  for (const from of Object.keys(rawMerges)) {
+    const target = resolveTarget(from)
+    if (from === target) continue
+    if (!referencesByName.has(from) || !referencesByName.has(target)) continue
+    connectionMerges[from] = target
+  }
+  const mergedReferences = pkg.connectionReferences.filter(
+    (reference) => connectionMerges[reference.logicalName],
+  )
+  const mergedNames = mergedReferences.map((reference) => reference.logicalName)
+
   let solutionXml = edits.solutionXmlOverride ?? pkg.solutionXml
   solutionXml = setSolutionVersion(solutionXml, edits.version)
   solutionXml = setManagedFlag(solutionXml, edits.managed)
   if (edits.removeMissingDependencies) {
     solutionXml = removeMissingDependencies(solutionXml)
+  }
+  if (mergedReferences.length > 0) {
+    solutionXml = removeRootComponents(solutionXml, {
+      type: 372,
+      ids: mergedReferences.map((reference) => reference.id ?? '').filter(Boolean),
+      schemaNames: mergedNames,
+    })
   }
 
   const solutionValidation = validateXml(solutionXml)
@@ -321,6 +375,11 @@ export async function buildEditedPackage(
   let customizationsXml = edits.customizationsXmlOverride ?? pkg.customizationsXml
   let customizationsChanged = false
   let appliedEnvironmentVariables = 0
+
+  if (mergedNames.length > 0 && customizationsXml) {
+    customizationsXml = removeConnectionReferences(customizationsXml, mergedNames)
+    customizationsChanged = true
+  }
 
   const definitionPathPattern =
     /^(?:.*\/)?environmentvariabledefinitions\/([^/]+)\/environmentvariabledefinition\.xml$/i
@@ -380,6 +439,7 @@ export async function buildEditedPackage(
   }
 
   const output = new JSZip()
+  let rewrittenFlowFiles = 0
   const paths = Object.keys(pkg.zip.files).sort()
   for (const path of paths) {
     const entry = pkg.zip.files[path]
@@ -418,6 +478,29 @@ export async function buildEditedPackage(
         comment: entry.comment,
         compression: 'DEFLATE',
       })
+    } else if (mergedNames.length > 0 && isWorkflowJson(path)) {
+      const text = stripBom(await entry.async('string'))
+      const rewritten = replaceConnectionReferenceNames(text, connectionMerges)
+      if (rewritten.replacements > 0) {
+        rewrittenFlowFiles += 1
+        output.file(path, rewritten.text, {
+          date: entry.date,
+          unixPermissions: entry.unixPermissions,
+          dosPermissions: entry.dosPermissions,
+          comment: entry.comment,
+          compression: 'DEFLATE',
+        })
+      } else {
+        const data = await entry.async('uint8array')
+        output.file(path, data, {
+          date: entry.date,
+          unixPermissions: entry.unixPermissions,
+          dosPermissions: entry.dosPermissions,
+          comment: entry.comment,
+          compression: entry.options?.compression ?? 'DEFLATE',
+          binary: true,
+        })
+      }
     } else {
       const data = await entry.async('uint8array')
       output.file(path, data, {
@@ -451,6 +534,8 @@ export async function buildEditedPackage(
     solutionXml,
     customizationsXml,
     appliedEnvironmentVariables,
+    mergedConnectionReferences: mergedReferences.length,
+    rewrittenFlowFiles,
   }
 }
 

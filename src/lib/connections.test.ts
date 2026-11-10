@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest'
 import type { ConnectionReference } from '../types'
 import {
+  connectionMergeCandidates,
   connectorDisplayName,
   detectConnectionUsage,
+  effectiveConnectionReferences,
   flowLabel,
   groupConnectionReferences,
   isWorkflowJson,
+  replaceConnectionReferenceNames,
 } from './connections'
 
 function reference(
@@ -133,5 +136,70 @@ describe('workflow scanning', () => {
     expect(usage.flowFileCount).toBe(0)
     expect(usage.hasCanvasApps).toBe(true)
     expect(usage.skippedFiles).toBe(2)
+  })
+})
+
+describe('connection merges', () => {
+  const references = [
+    reference('cr_dv_one', dataverse),
+    reference('cr_dv_two', `${dataverse}/`),
+    reference('cr_dv_three', dataverse.toUpperCase()),
+    reference('cr_outlook', outlook),
+    reference('cr_untracked', ''),
+  ]
+
+  it('returns only other references on the same connector', () => {
+    const candidates = connectionMergeCandidates(references, 'cr_dv_one')
+    expect(candidates.map((item) => item.logicalName)).toEqual(['cr_dv_two', 'cr_dv_three'])
+  })
+
+  it('returns nothing for unknown or connector-less survivors', () => {
+    expect(connectionMergeCandidates(references, 'missing')).toEqual([])
+    expect(connectionMergeCandidates(references, 'cr_untracked')).toEqual([])
+  })
+
+  it('filters merged references out of the effective list', () => {
+    const effective = effectiveConnectionReferences(references, {
+      cr_dv_two: 'cr_dv_one',
+      cr_dv_three: 'cr_dv_one',
+    })
+    expect(effective.map((item) => item.logicalName)).toEqual([
+      'cr_dv_one',
+      'cr_outlook',
+      'cr_untracked',
+    ])
+    expect(effectiveConnectionReferences(references, undefined)).toBe(references)
+  })
+
+  it('rewrites logical names inside flow JSON keys and values', () => {
+    const flow = JSON.stringify({
+      properties: {
+        connectionReferences: {
+          cr_dv_two: { connectionReferenceLogicalName: 'cr_dv_three' },
+          cr_outlook: {},
+        },
+      },
+    })
+    const result = replaceConnectionReferenceNames(flow, {
+      cr_dv_two: 'cr_dv_one',
+      cr_dv_three: 'cr_dv_one',
+    })
+    expect(result.replacements).toBe(2)
+    expect(result.text).toContain('cr_dv_one')
+    expect(result.text).not.toContain('cr_dv_two')
+    expect(result.text).not.toContain('cr_dv_three')
+    expect(result.text).toContain('cr_outlook')
+  })
+
+  it('does not replace partial matches or same-name mappings', () => {
+    const partial = replaceConnectionReferenceNames('cr_dv_two_extra cr_dv_two', {
+      cr_dv_two: 'cr_dv_one',
+    })
+    expect(partial.replacements).toBe(1)
+    expect(partial.text).toBe('cr_dv_two_extra cr_dv_one')
+
+    const same = replaceConnectionReferenceNames('cr_dv_two', { cr_dv_two: 'cr_dv_two' })
+    expect(same.replacements).toBe(0)
+    expect(same.text).toBe('cr_dv_two')
   })
 })

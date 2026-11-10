@@ -7,7 +7,9 @@ import {
   parseEnvironmentVariables,
   parseEnvironmentVariableValueFile,
   parseSolutionXml,
+  removeConnectionReferences,
   removeMissingDependencies,
+  removeRootComponents,
   setEnvironmentVariableValue,
   setEnvironmentVariableValueFile,
   setManagedFlag,
@@ -232,12 +234,56 @@ describe('environment variable sidecar files', () => {
 })
 
 describe('connection references', () => {
-  it('reads logical name, connector and display name', () => {
+  it('reads logical name, connector, display name and id', () => {
     const references = parseConnectionReferences(customizationsXml)
     expect(references).toHaveLength(1)
     expect(references[0].logicalName).toBe('con_Dataverse')
     expect(references[0].displayName).toBe('Dataverse')
     expect(references[0].connectorId).toContain('shared_commondataserviceforapps')
+    expect(references[0].id).toBe('{22222222-2222-2222-2222-222222222222}')
+  })
+
+  it('removes only the requested connection reference blocks', () => {
+    const xml = `<ImportExportXml>
+  <connectionreferences>
+    <connectionreference connectionreferencelogicalname="con_Keep">
+      <connectorid>/providers/Microsoft.PowerApps/apis/shared_office365</connectorid>
+    </connectionreference>
+    <connectionreference connectionreferencelogicalname="con_DropA">
+      <connectorid>/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps</connectorid>
+    </connectionreference>
+    <connectionreference connectionreferencelogicalname="con_DropB">
+      <connectorid>/providers/Microsoft.PowerApps/apis/shared_commondataserviceforapps</connectorid>
+    </connectionreference>
+  </connectionreferences>
+</ImportExportXml>`
+
+    const updated = removeConnectionReferences(xml, ['con_DropA', 'con_DropB'])
+    expect(updated).toContain('con_Keep')
+    expect(updated).not.toContain('con_DropA')
+    expect(updated).not.toContain('con_DropB')
+    expect(updated.match(/<connectionreference\b/g)).toHaveLength(1)
+  })
+
+  it('removes connection reference root components by id or schema name', () => {
+    const xml = `<ImportExportXml>
+  <RootComponents>
+    <RootComponent type="1" id="{11111111-1111-1111-1111-111111111111}" />
+    <RootComponent type="372" id="{22222222-2222-2222-2222-222222222222}" />
+    <RootComponent type="372" schemaName="con_DropB" />
+    <RootComponent type="372" id="{33333333-3333-3333-3333-333333333333}" />
+  </RootComponents>
+</ImportExportXml>`
+
+    const updated = removeRootComponents(xml, {
+      type: 372,
+      ids: ['{22222222-2222-2222-2222-222222222222}'],
+      schemaNames: ['con_DropB'],
+    })
+    expect(updated).toContain('11111111-1111-1111-1111-111111111111')
+    expect(updated).toContain('33333333-3333-3333-3333-333333333333')
+    expect(updated).not.toContain('22222222-2222-2222-2222-222222222222')
+    expect(updated).not.toContain('con_DropB')
   })
 })
 

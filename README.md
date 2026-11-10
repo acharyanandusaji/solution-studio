@@ -22,10 +22,12 @@ bytes never leave your machine.
   sidecar files. Managed exports are supported.
 - **Connection references** — map logical references to target connection IDs. These IDs go into
   deployment settings, not into the solution ZIP.
-- **Connection consolidation** — group references by connector, apply one shared connection ID
-  (for example a service-principal connection) to an entire group, and review duplicate groups or
-  references that no cloud flow uses. Merging happens in deployment settings only; flow definitions
-  and the ZIP are left untouched.
+- **Connection consolidation** — group references by connector and apply one shared connection ID
+  (for example a service-principal connection) to an entire group. For true structural consolidation,
+  pick one reference as the survivor and merge the other references on the same connector into it:
+  the rebuilt ZIP removes the merged `<connectionreference>` nodes and their root components, and
+  rewrites cloud flow definitions to use the surviving logical name. References on other connectors
+  are never touched.
 - **Deployment settings** — generate a PAC CLI-compatible `DeploymentSettings.json`, copy or download
   it, and import existing settings files.
 - **Review before download** — a change set and pre-import health report gate the download.
@@ -35,8 +37,9 @@ bytes never leave your machine.
 ## Safety model
 
 The uploaded ZIP is kept in memory and never mutated. Structured edits live in React state and are
-only applied when you build a new ZIP. Files other than `solution.xml`, `customizations.xml` and
-environment variable value files are copied into the output archive unchanged.
+only applied when you build a new ZIP. Files other than `solution.xml`, `customizations.xml`,
+environment variable value files and cloud flow definitions (`Workflows/*.json`) are copied into the
+output archive unchanged.
 
 Two deliberate limitations are surfaced in the UI:
 
@@ -44,6 +47,10 @@ Two deliberate limitations are surfaced in the UI:
   Real conversion happens by exporting or importing in Dataverse.
 - Removing `<MissingDependencies>` removes metadata, not the dependencies themselves. The required
   components must already exist in the target environment.
+
+Connection reference merging only applies to references on the exact same connector (Dataverse and
+its legacy variants are not interchangeable). Canvas apps (`.msapp`) are binary and cannot be
+rewritten, so their connections must be verified manually after import.
 
 ## Getting started
 

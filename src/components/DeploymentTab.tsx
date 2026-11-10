@@ -23,7 +23,12 @@ import type {
   SolutionEdits,
   SolutionPackage,
 } from '../types'
-import { effectiveConnectionId, effectiveEnvironmentValue, generateDeploymentSettings } from '../lib/package'
+import {
+  effectiveConnectionId,
+  effectiveConnectionReferences,
+  effectiveEnvironmentValue,
+  generateDeploymentSettings,
+} from '../lib/package'
 import { formatTimeAgo, pluralize, uid } from '../lib/format'
 import { downloadText } from '../lib/package'
 import { ENV_PROFILES } from '../lib/constants'
@@ -60,10 +65,15 @@ export function DeploymentTab({
 
   const settings = useMemo(() => generateDeploymentSettings(pkg, edits), [pkg, edits])
   const settingsJson = useMemo(() => JSON.stringify(settings, null, 2), [settings])
-  const configuredConnections = pkg.connectionReferences.filter((reference) =>
+  const effectiveReferences = useMemo(
+    () => effectiveConnectionReferences(pkg, edits),
+    [pkg, edits],
+  )
+  const mergedReferenceCount = pkg.connectionReferences.length - effectiveReferences.length
+  const configuredConnections = effectiveReferences.filter((reference) =>
     effectiveConnectionId(edits, reference.logicalName).trim(),
   ).length
-  const emptyConnections = pkg.connectionReferences.length - configuredConnections
+  const emptyConnections = effectiveReferences.length - configuredConnections
   const emptyEnvVars = pkg.environmentVariables.filter(
     (variable) => !variable.secret && effectiveEnvironmentValue(pkg, edits, variable.schemaName).trim() === '',
   ).length
@@ -109,7 +119,7 @@ export function DeploymentTab({
       const connectionIds: Record<string, string> = {}
       for (const item of parsed.ConnectionReferences ?? []) {
         if (!item.LogicalName || typeof item.ConnectionId !== 'string') continue
-        if (!pkg.connectionReferences.some((reference) => reference.logicalName === item.LogicalName)) continue
+        if (!effectiveReferences.some((reference) => reference.logicalName === item.LogicalName)) continue
         connectionIds[item.LogicalName] = item.ConnectionId
       }
       onApplyImportedSettings({
@@ -191,7 +201,8 @@ export function DeploymentTab({
         <div className="env-summary-item">
           <Cable size={17} />
           <span>
-            <strong>{configuredConnections}</strong> / {pkg.connectionReferences.length} connections
+            <strong>{configuredConnections}</strong> / {effectiveReferences.length} connections
+            {mergedReferenceCount > 0 ? ` (${mergedReferenceCount} merged)` : ''}
           </span>
         </div>
         <div className="env-summary-item">
@@ -207,6 +218,22 @@ export function DeploymentTab({
           </span>
         </div>
       </div>
+
+      {mergedReferenceCount > 0 ? (
+        <div className="notice notice-info">
+          <Cable size={19} />
+          <div>
+            <strong>
+              {pluralize(mergedReferenceCount, 'merged connection reference')} excluded from deployment
+              settings.
+            </strong>
+            <p>
+              The rebuilt ZIP removes these references and rewrites their flows to use the surviving
+              reference. Only the survivors need a target connection ID.
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       <div className="deployment-grid">
         <SectionCard

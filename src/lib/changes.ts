@@ -56,7 +56,27 @@ export function buildChangeList(
     })
   }
 
+  for (const [from, to] of Object.entries(edits.connectionMerges ?? {})) {
+    if (!from || !to || from === to) continue
+    const reference = pkg.connectionReferences.find((item) => item.logicalName === from)
+    if (!reference) continue
+    changes.push({
+      id: `merge-${from}`,
+      label: `${reference.displayName || from} connection reference`,
+      before: from,
+      after: `Merged into ${to}`,
+      category: 'solution',
+    })
+  }
+
+  const mergedNames = new Set(
+    Object.entries(edits.connectionMerges ?? {})
+      .filter(([from, to]) => from && to && from !== to)
+      .map(([from]) => from),
+  )
+
   for (const reference of pkg.connectionReferences) {
+    if (mergedNames.has(reference.logicalName)) continue
     const id = effectiveConnectionId(edits, reference.logicalName)
     if (id === reference.connectionId) continue
     if (!id && !reference.connectionId) continue

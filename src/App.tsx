@@ -16,6 +16,7 @@ import {
 } from './lib/package'
 import { buildHealthReport } from './lib/validation'
 import { buildChangeList } from './lib/changes'
+import { connectionMergeCandidates } from './lib/connections'
 import { uid } from './lib/format'
 import { bumpVersion } from './lib/xml'
 import { createSampleSolutionFile } from './lib/sample'
@@ -153,6 +154,62 @@ export default function App() {
     )
   }, [])
 
+  const mergeConnections = useCallback(
+    (survivor: string) => {
+      if (!pkg) return
+      const survivorReference = pkg.connectionReferences.find(
+        (reference) => reference.logicalName === survivor,
+      )
+      if (!survivorReference) return
+      const candidates = connectionMergeCandidates(pkg.connectionReferences, survivor)
+      if (candidates.length === 0) {
+        toast(
+          'info',
+          'Nothing to merge',
+          'No other connection reference in this package targets the same connector.',
+        )
+        return
+      }
+
+      setEdits((current) => {
+        if (!current) return current
+        const nextMerges = { ...(current.connectionMerges ?? {}) }
+        const groupNames = new Set([
+          survivor,
+          ...candidates.map((candidate) => candidate.logicalName),
+        ])
+        // Drop earlier merges in this connector group before applying the new survivor.
+        for (const name of groupNames) delete nextMerges[name]
+        for (const candidate of candidates) nextMerges[candidate.logicalName] = survivor
+
+        const connectionIds = { ...current.connectionIds }
+        if (!connectionIds[survivor]?.trim()) {
+          const adopted = [survivorReference, ...candidates]
+            .map(
+              (reference) =>
+                current.connectionIds[reference.logicalName] ?? reference.connectionId,
+            )
+            .find((value) => value?.trim())
+          if (adopted) connectionIds[survivor] = adopted
+        }
+        return { ...current, connectionMerges: nextMerges, connectionIds }
+      })
+      toast(
+        'success',
+        'Connection references merged',
+        `${candidates.length} reference${candidates.length === 1 ? '' : 's'} will be replaced by ${survivor} in the rebuilt ZIP.`,
+      )
+    },
+    [pkg, toast],
+  )
+
+  const resetConnectionMerges = useCallback(() => {
+    setEdits((current) =>
+      current ? { ...current, connectionMerges: {} } : current,
+    )
+    toast('info', 'Merge reset', 'The original connection references will be kept.')
+  }, [toast])
+
   const changes = useMemo(
     () => (pkg && edits ? buildChangeList(pkg, edits) : []),
     [pkg, edits],
@@ -207,7 +264,15 @@ export default function App() {
         'Solution ZIP downloaded',
         `${result.fileName} · ${result.appliedEnvironmentVariables} environment value${
           result.appliedEnvironmentVariables === 1 ? '' : 's'
-        } written`,
+        } written${
+          result.mergedConnectionReferences > 0
+            ? ` · ${result.mergedConnectionReferences} reference${
+                result.mergedConnectionReferences === 1 ? '' : 's'
+              } merged in ${result.rewrittenFlowFiles} flow${
+                result.rewrittenFlowFiles === 1 ? '' : 's'
+              }`
+            : ''
+        }`,
       )
     } catch (error) {
       toast('error', 'Could not build the ZIP', (error as Error).message)
@@ -321,6 +386,8 @@ export default function App() {
             edits={edits}
             onSetConnectionId={setConnectionId}
             onSetConnectionIds={setConnectionIds}
+            onMergeConnections={mergeConnections}
+            onResetConnectionMerges={resetConnectionMerges}
             onOpenDeployment={() => setTab('deployment')}
             onNotifyCopied={(ok) =>
               toast(ok ? 'success' : 'error', ok ? 'Copied to clipboard' : 'Copy failed')

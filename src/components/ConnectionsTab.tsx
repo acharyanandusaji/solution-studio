@@ -9,6 +9,7 @@ import {
   Layers,
   Link2,
   Plug,
+  RotateCcw,
   Search,
   ShieldCheck,
   TriangleAlert,
@@ -18,7 +19,9 @@ import type { ConnectionReference, SolutionEdits, SolutionPackage } from '../typ
 import { effectiveConnectionId } from '../lib/package'
 import {
   analyzeConnectionUsage,
+  connectionMergeCandidates,
   connectorKey,
+  effectiveConnectionReferences,
   groupConnectionReferences,
   type ConnectorGroup,
   type FlowUsage,
@@ -31,6 +34,8 @@ export function ConnectionsTab({
   edits,
   onSetConnectionId,
   onSetConnectionIds,
+  onMergeConnections,
+  onResetConnectionMerges,
   onOpenDeployment,
   onNotifyCopied,
 }: {
@@ -38,6 +43,8 @@ export function ConnectionsTab({
   edits: SolutionEdits
   onSetConnectionId: (logicalName: string, connectionId: string) => void
   onSetConnectionIds: (ids: Record<string, string>) => void
+  onMergeConnections: (survivorLogicalName: string) => void
+  onResetConnectionMerges: () => void
   onOpenDeployment: () => void
   onNotifyCopied: (copied: boolean) => void
 }) {
@@ -62,22 +69,38 @@ export function ConnectionsTab({
     }
   }, [pkg])
 
-  const configured = pkg.connectionReferences.filter((reference) =>
+  const merges = edits.connectionMerges ?? {}
+  const mergedCount = Object.keys(merges).filter(
+    (from) => merges[from] && merges[from] !== from,
+  ).length
+  const effectiveReferences = effectiveConnectionReferences(
+    pkg.connectionReferences,
+    merges,
+  )
+
+  const configured = effectiveReferences.filter((reference) =>
     effectiveConnectionId(edits, reference.logicalName).trim(),
   ).length
 
   const groups = useMemo(
-    () => groupConnectionReferences(pkg.connectionReferences),
-    [pkg.connectionReferences],
+    () => groupConnectionReferences(effectiveReferences),
+    [effectiveReferences],
   )
   const duplicateGroups = groups.filter((group) => group.references.length > 1)
+  const mergeableGroups = useMemo(
+    () =>
+      groupConnectionReferences(pkg.connectionReferences).filter(
+        (group) => group.references.length > 1,
+      ),
+    [pkg.connectionReferences],
+  )
   const untracked = pkg.connectionReferences.filter(
     (reference) => !connectorKey(reference.connectorId),
   )
 
   const usageKnown = usage !== null && usage.flowFileCount > 0
   const unused = usageKnown
-    ? pkg.connectionReferences.filter(
+    ? effectiveReferences.filter(
         (reference) => (usage.flows[reference.logicalName] ?? []).length === 0,
       )
     : []
@@ -140,7 +163,8 @@ export function ConnectionsTab({
             <div className="env-summary-item">
               <Cable size={17} />
               <span>
-                <strong>{pkg.connectionReferences.length}</strong> references
+                <strong>{effectiveReferences.length}</strong> references
+                {mergedCount > 0 ? ` (was ${pkg.connectionReferences.length})` : ''}
               </span>
             </div>
             <div className="env-summary-item">
@@ -152,7 +176,7 @@ export function ConnectionsTab({
             <div className="env-summary-item">
               <TriangleAlert size={17} />
               <span>
-                <strong>{pkg.connectionReferences.length - configured}</strong> missing IDs
+                <strong>{effectiveReferences.length - configured}</strong> missing IDs
               </span>
             </div>
             <div className="env-summary-item">
@@ -161,7 +185,14 @@ export function ConnectionsTab({
                 <strong>{groups.length}</strong> connectors
               </span>
             </div>
-            {duplicateGroups.length > 0 ? (
+            {mergedCount > 0 ? (
+              <div className="env-summary-item">
+                <GitMerge size={17} />
+                <span>
+                  <strong>{mergedCount}</strong> merged
+                </span>
+              </div>
+            ) : duplicateGroups.length > 0 ? (
               <div className="env-summary-item">
                 <GitMerge size={17} />
                 <span>
@@ -171,10 +202,20 @@ export function ConnectionsTab({
             ) : null}
           </div>
 
+          {mergeableGroups.length > 0 ? (
+            <MergePanel
+              pkg={pkg}
+              edits={edits}
+              groups={mergeableGroups}
+              onMerge={onMergeConnections}
+              onReset={onResetConnectionMerges}
+            />
+          ) : null}
+
           {groups.length > 0 ? (
             <SectionCard
               title="Consolidate by connector"
-              description="Apply one shared connection ID to every reference that targets the same connector. This merges them at deployment time without touching flow definitions."
+              description="Apply one shared connection ID to every reference that targets the same connector. This maps them to the same connection at deployment time without changing logical names."
               icon={<GitMerge size={18} />}
             >
               <div className="connection-groups">
@@ -263,6 +304,7 @@ export function ConnectionsTab({
                     reference={reference}
                     value={effectiveConnectionId(edits, reference.logicalName)}
                     flowCount={usage ? usage.flows[reference.logicalName]?.length ?? 0 : null}
+                    mergedInto={merges[reference.logicalName]}
                     onChange={(value) => onSetConnectionId(reference.logicalName, value)}
                     onNotifyCopied={onNotifyCopied}
                   />
@@ -291,6 +333,137 @@ export function ConnectionsTab({
         </span>
       </div>
     </div>
+  )
+}
+
+function MergePanel({
+  pkg,
+  edits,
+  groups,
+  onMerge,
+  onReset,
+}: {
+  pkg: SolutionPackage
+  edits: SolutionEdits
+  groups: ConnectorGroup[]
+  onMerge: (survivorLogicalName: string) => void
+  onReset: () => void
+}) {
+  const [survivor, setSurvivor] = useState('')
+  const merges = edits.connectionMerges ?? {}
+  const mergedCount = Object.keys(merges).filter(
+    (from) => merges[from] && merges[from] !== from,
+  ).length
+  const options = groups.flatMap((group) => group.references)
+  const selected = options.some((reference) => reference.logicalName === survivor)
+    ? survivor
+    : options[0]?.logicalName ?? ''
+  const selectedReference = options.find((reference) => reference.logicalName === selected)
+  const candidates = selected
+    ? connectionMergeCandidates(pkg.connectionReferences, selected)
+    : []
+
+  return (
+    <SectionCard
+      title="Merge duplicate connection references"
+      description="Keep one reference and replace every other reference on the same connector. The rebuilt ZIP contains only the survivor and its flows use it."
+      icon={<GitMerge size={18} />}
+    >
+      <div className="merge-panel">
+        <div className="merge-panel-row">
+          <div className="merge-panel-field">
+            <label htmlFor="merge-survivor">Keep this connection reference</label>
+            <select
+              id="merge-survivor"
+              className="select-input full"
+              value={selected}
+              onChange={(event) => setSurvivor(event.target.value)}
+            >
+              {groups.map((group) => (
+                <optgroup key={group.connectorKey} label={group.connectorName}>
+                  {group.references.map((reference) => (
+                    <option key={reference.logicalName} value={reference.logicalName}>
+                      {reference.displayName} · {reference.logicalName}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+          <div className="merge-panel-actions">
+            <Button
+              variant="primary"
+              size="sm"
+              icon={<GitMerge size={14} />}
+              disabled={candidates.length === 0}
+              onClick={() => onMerge(selected)}
+            >
+              Merge {candidates.length} reference{candidates.length === 1 ? '' : 's'}
+            </Button>
+            {mergedCount > 0 ? (
+              <Button
+                variant="ghost"
+                size="sm"
+                icon={<RotateCcw size={14} />}
+                onClick={onReset}
+              >
+                Reset merge
+              </Button>
+            ) : null}
+          </div>
+        </div>
+
+        {selectedReference ? (
+          <div className="merge-preview">
+            <div className="merge-preview-keep">
+              <Badge tone="success" dot>
+                Keep
+              </Badge>
+              <strong>{selectedReference.displayName}</strong>
+              <code className="cell-code">{selectedReference.logicalName}</code>
+            </div>
+            {candidates.length > 0 ? (
+              <ul className="merge-preview-list">
+                {candidates.map((reference) => (
+                  <li key={reference.logicalName}>
+                    <GitMerge size={13} />
+                    <span>
+                      <strong>{reference.displayName}</strong>
+                      <code>{reference.logicalName}</code>
+                    </span>
+                    <Badge tone="neutral">Replaced</Badge>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="merge-preview-empty">
+                This is the only reference on its connector, so there is nothing to merge.
+              </p>
+            )}
+          </div>
+        ) : null}
+
+        {mergedCount > 0 ? (
+          <p className="merge-status">
+            <CheckCircle2 size={14} />
+            <span>
+              <strong>{mergedCount}</strong> reference{mergedCount === 1 ? '' : 's'} will be removed when the
+              ZIP is rebuilt. Reset the merge to restore them.
+            </span>
+          </p>
+        ) : null}
+
+        <p className="connection-caveat">
+          <Info size={14} />
+          <span>
+            Only references on the same connector can be merged. The rebuilt ZIP removes the other{' '}
+            <code>&lt;connectionreference&gt;</code> nodes and their root components, and rewrites cloud flow
+            definitions to use the surviving logical name. Canvas apps (<code>.msapp</code>) are binary and
+            cannot be rewritten, so verify them after import.
+          </span>
+        </p>
+      </div>
+    </SectionCard>
   )
 }
 
@@ -447,19 +620,28 @@ function ConnectionCard({
   reference,
   value,
   flowCount,
+  mergedInto,
   onChange,
   onNotifyCopied,
 }: {
   reference: ConnectionReference
   value: string
   flowCount: number | null
+  mergedInto?: string
   onChange: (value: string) => void
   onNotifyCopied: (copied: boolean) => void
 }) {
+  const merged = Boolean(mergedInto && mergedInto !== reference.logicalName)
   const configured = value.trim().length > 0
   const looksValid = configured && isUuidLike(value)
   return (
-    <article className={`connection-card ${configured ? 'is-configured' : ''}`}>
+    <article
+      className={cx(
+        'connection-card',
+        configured && !merged && 'is-configured',
+        merged && 'is-merged',
+      )}
+    >
       <div className="connection-card-head">
         <div className="connection-identity">
           <span className="connection-icon">
@@ -468,7 +650,11 @@ function ConnectionCard({
           <div>
             <div className="connection-title">
               <strong>{reference.displayName}</strong>
-              {configured ? (
+              {merged ? (
+                <Badge tone="info" dot>
+                  Merged into {mergedInto}
+                </Badge>
+              ) : configured ? (
                 <Badge tone="success" dot>
                   Configured
                 </Badge>
@@ -516,6 +702,7 @@ function ConnectionCard({
             spellCheck={false}
             autoComplete="off"
             className="mono-input"
+            disabled={merged}
           />
           <CopyButton
             text={value}
@@ -524,7 +711,12 @@ function ConnectionCard({
             onCopied={onNotifyCopied}
           />
         </div>
-        {value && !looksValid ? (
+        {merged ? (
+          <span className="inline-hint">
+            <GitMerge size={12} /> This reference is replaced by <code>{mergedInto}</code> in the rebuilt ZIP,
+            so its connection ID is not exported.
+          </span>
+        ) : value && !looksValid ? (
           <span className="inline-hint warning">
             <TriangleAlert size={12} /> This does not look like a connection GUID. Double-check the value.
           </span>

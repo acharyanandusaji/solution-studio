@@ -1,4 +1,5 @@
 import type { ConnectionReference, SolutionPackage } from '../types'
+import { escapeRegExp } from './xml'
 
 const CONNECTOR_LABELS: Record<string, string> = {
   shared_commondataserviceforapps: 'Microsoft Dataverse',
@@ -82,6 +83,75 @@ export interface FlowUsage {
   flowFileCount: number
   skippedFiles: number
   hasCanvasApps: boolean
+}
+
+/**
+ * References that can safely be merged into the chosen survivor. Only
+ * references that target the exact same connector qualify; connector ids are
+ * normalized so trailing slashes and casing do not matter.
+ */
+export function connectionMergeCandidates(
+  references: ConnectionReference[],
+  survivorLogicalName: string,
+): ConnectionReference[] {
+  const survivor = references.find(
+    (reference) => reference.logicalName === survivorLogicalName,
+  )
+  if (!survivor) return []
+  const key = connectorKey(survivor.connectorId)
+  if (!key) return []
+  return references.filter(
+    (reference) =>
+      reference.logicalName !== survivor.logicalName &&
+      connectorKey(reference.connectorId) === key,
+  )
+}
+
+export function effectiveConnectionReferences(
+  references: ConnectionReference[],
+  merges: Record<string, string> | undefined,
+): ConnectionReference[] {
+  if (!merges) return references
+  const removed = new Set(
+    Object.entries(merges)
+      .filter(([from, to]) => from && to && from !== to)
+      .map(([from]) => from),
+  )
+  if (removed.size === 0) return references
+  return references.filter((reference) => !removed.has(reference.logicalName))
+}
+
+/**
+ * Rewrites every occurrence of a merged logical name inside a flow definition
+ * with the surviving logical name. Flow exports use the name both as an object
+ * key and inside `connectionReferenceLogicalName`, so a boundary-aware text
+ * replacement covers every known shape.
+ */
+export function replaceConnectionReferenceNames(
+  text: string,
+  merges: Record<string, string>,
+): { text: string; replacements: number } {
+  const mapping = new Map<string, string>()
+  for (const [merged, survivor] of Object.entries(merges)) {
+    const from = merged.trim()
+    const to = survivor.trim()
+    if (!from || !to || from.toLowerCase() === to.toLowerCase()) continue
+    mapping.set(from.toLowerCase(), to)
+  }
+  if (mapping.size === 0) return { text, replacements: 0 }
+
+  const names = [...mapping.keys()]
+    .sort((a, b) => b.length - a.length)
+    .map(escapeRegExp)
+  const pattern = new RegExp(`\\b(?:${names.join('|')})\\b`, 'gi')
+  let replacements = 0
+  const next = text.replace(pattern, (match) => {
+    const target = mapping.get(match.toLowerCase())
+    if (!target) return match
+    replacements += 1
+    return target
+  })
+  return { text: next, replacements }
 }
 
 export interface TextEntry {

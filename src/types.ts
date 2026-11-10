@@ -58,6 +58,8 @@ export interface ConnectionReference {
   displayName: string
   connectorId: string
   connectionId: string
+  /** GUID from <connectionreferenceid>, used to remove root components when merging */
+  id?: string
   description?: string
 }
 
@@ -115,6 +117,8 @@ export interface SolutionEdits {
   envVarValues: Record<string, string>
   connectionIds: Record<string, string>
   connectionConnectorIds?: Record<string, string>
+  /** merged logical name -> logical name of the reference that survives in the rebuilt ZIP */
+  connectionMerges?: Record<string, string>
   solutionXmlOverride?: string
   customizationsXmlOverride?: string
 }

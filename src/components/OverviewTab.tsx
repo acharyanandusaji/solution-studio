@@ -30,6 +30,7 @@ import type {
   TabId,
 } from '../types'
 import { formatBytes, formatDate, pluralize } from '../lib/format'
+import { effectiveConnectionReferences } from '../lib/package'
 import { Badge, Button, Card, ScoreRing, SectionCard, StatCard, StatusIcon } from './ui'
 
 export function OverviewTab({
@@ -48,7 +49,11 @@ export function OverviewTab({
   onBumpBuild: () => void
 }) {
   const modifiedEnvVars = Object.keys(edits.envVarValues).length
-  const configuredConnections = Object.values(edits.connectionIds).filter(Boolean).length
+  const effectiveConnections = effectiveConnectionReferences(pkg, edits)
+  const mergedConnectionCount = pkg.connectionReferences.length - effectiveConnections.length
+  const configuredConnections = effectiveConnections.filter((reference) =>
+    (edits.connectionIds[reference.logicalName] ?? '').trim(),
+  ).length
   const componentCount = pkg.solution.rootComponents.length
   const missingCount = edits.removeMissingDependencies ? 0 : pkg.solution.missingDependencies.length
 
@@ -119,10 +124,16 @@ export function OverviewTab({
         />
         <StatCard
           label="Connection references"
-          value={pkg.connectionReferences.length}
+          value={effectiveConnections.length}
           hint={
-            pkg.connectionReferences.length > 0
-              ? `${configuredConnections} target connection ID${configuredConnections === 1 ? '' : 's'} set`
+            effectiveConnections.length > 0
+              ? mergedConnectionCount > 0
+                ? `${mergedConnectionCount} merged · ${configuredConnections} target ID${
+                    configuredConnections === 1 ? '' : 's'
+                  } set`
+                : `${configuredConnections} target connection ID${
+                    configuredConnections === 1 ? '' : 's'
+                  } set`
               : 'No connection references in package'
           }
           icon={<Cable size={19} />}
