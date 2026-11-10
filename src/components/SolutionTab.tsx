@@ -210,13 +210,13 @@ export function SolutionTab({
 
       <SectionCard
         title="Missing dependencies"
-        description="Review unresolved component dependencies and decide whether to strip the block."
+        description="Review unresolved component dependencies and decide whether to clear the list."
         icon={<Link2Off size={18} />}
         actions={
           <Toggle
             checked={edits.removeMissingDependencies}
             onChange={(next) => onChange({ removeMissingDependencies: next })}
-            label="Remove on download"
+            label="Clear on download"
             disabled={!pkg.solution.hasMissingDependenciesNode}
             danger
           />
@@ -231,7 +231,7 @@ export function SolutionTab({
               <strong>No missing dependencies found</strong>
               <p>
                 {pkg.solution.hasMissingDependenciesNode
-                  ? 'The MissingDependencies element exists but is empty — nothing to remove.'
+                  ? 'The MissingDependencies element exists but is empty — nothing to clear.'
                   : 'This solution manifest has no MissingDependencies element.'}
               </p>
             </div>
@@ -242,10 +242,11 @@ export function SolutionTab({
               <div className="notice notice-danger">
                 <Eraser size={19} />
                 <div>
-                  <strong>{pluralize(pkg.solution.missingDependencies.length, 'dependency', 'dependencies')} will be removed.</strong>
+                  <strong>{pluralize(pkg.solution.missingDependencies.length, 'dependency', 'dependencies')} will be cleared.</strong>
                   <p>
-                    Make sure the target environment already contains the required components. Removing this
-                    block hides the warning — it does not install what is missing.
+                    The list is emptied to <code>&lt;MissingDependencies /&gt;</code> and the element is kept.
+                    Make sure the target environment already contains the required components — clearing the
+                    list hides the warning, it does not install what is missing.
                   </p>
                 </div>
               </div>

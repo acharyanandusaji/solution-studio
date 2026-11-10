@@ -116,11 +116,20 @@ describe('solution.xml edits', () => {
     expect(setManagedFlag(xml, true)).toContain('<Managed>1</Managed>')
   })
 
-  it('removes the MissingDependencies block and its indentation', () => {
+  it('empties the MissingDependencies element but keeps it in place', () => {
     const updated = removeMissingDependencies(solutionXml)
-    expect(updated).not.toContain('MissingDependencies')
+    expect(updated).toContain('<MissingDependencies />')
+    expect(updated).not.toContain('</MissingDependencies>')
     expect(updated).not.toContain('msdyn_workorder')
     expect(updated).toContain('</SolutionManifest>')
+  })
+
+  it('leaves an already-empty MissingDependencies element untouched', () => {
+    const xml = solutionXml.replace(
+      /<MissingDependencies>[\s\S]*?<\/MissingDependencies>/,
+      '<MissingDependencies />',
+    )
+    expect(removeMissingDependencies(xml)).toBe(xml)
   })
 })
 

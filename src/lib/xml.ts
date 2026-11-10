@@ -469,10 +469,19 @@ export function setManagedFlag(xml: string, managed: boolean): string {
   throw new Error('Could not find the SolutionManifest to add the Managed flag.')
 }
 
+/**
+ * Clears the `<MissingDependencies>` list while keeping the element in place.
+ *
+ * Every Dataverse export includes this element; solutions with nothing missing
+ * use a self-closing `<MissingDependencies />`. Deleting the node entirely makes
+ * the manifest differ from what the import pipeline expects and can surface as
+ * the generic "Object reference not set to an instance of an object" failure.
+ */
 export function removeMissingDependencies(xml: string): string {
-  return xml
-    .replace(/[ \t]*<MissingDependencies\b[^>]*>[\s\S]*?<\/MissingDependencies>[ \t]*\r?\n?/i, '')
-    .replace(/[ \t]*<MissingDependencies\b[^>]*\/>[ \t]*\r?\n?/i, '')
+  return xml.replace(
+    /([ \t]*)<MissingDependencies\b[^>]*>[\s\S]*?<\/MissingDependencies>/i,
+    '$1<MissingDependencies />',
+  )
 }
 
 function normalizeGuid(value: string): string {

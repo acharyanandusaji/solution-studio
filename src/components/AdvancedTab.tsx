@@ -270,7 +270,7 @@ export function AdvancedTab({
               <span>2</span>
               <div>
                 <strong>Apply solution settings</strong>
-                <p>Version, managed flag and MissingDependencies removal are written next.</p>
+                <p>Version, managed flag and MissingDependencies clearing are written next.</p>
               </div>
             </li>
             <li>
@@ -312,9 +312,9 @@ export function AdvancedTab({
               )}
             </div>
             <div className="raw-status-row">
-              <span>MissingDependencies block</span>
+              <span>MissingDependencies list</span>
               <Badge tone={edits.removeMissingDependencies ? 'danger' : 'neutral'}>
-                {edits.removeMissingDependencies ? 'Will be removed' : 'Preserved'}
+                {edits.removeMissingDependencies ? 'Will be cleared' : 'Preserved'}
               </Badge>
             </div>
             <div className="raw-status-row">

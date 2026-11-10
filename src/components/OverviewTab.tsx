@@ -147,7 +147,7 @@ export function OverviewTab({
             pkg.solution.missingDependencies.length === 0
               ? 'Nothing unresolved'
               : edits.removeMissingDependencies
-                ? 'Will be stripped on download'
+                ? 'Will be cleared on download'
                 : 'Will remain in solution.xml'
           }
           icon={<Link2Off size={19} />}
@@ -333,7 +333,7 @@ export function OverviewTab({
             <ReadinessRow
               icon={<Link2Off size={15} />}
               label="Missing dependencies"
-              value={edits.removeMissingDependencies ? 'Remove on download' : 'Preserve as-is'}
+              value={edits.removeMissingDependencies ? 'Clear on download' : 'Preserve as-is'}
               tone={edits.removeMissingDependencies ? 'changed' : 'default'}
             />
             <ReadinessRow

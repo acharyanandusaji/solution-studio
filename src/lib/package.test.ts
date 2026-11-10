@@ -256,3 +256,55 @@ describe('connection reference merge', () => {
     expect(flow).not.toContain('con_DvDropB')
   })
 })
+
+const dependenciesSolutionXml = `<?xml version="1.0" encoding="utf-8"?>
+<ImportExportXml>
+  <SolutionManifest>
+    <UniqueName>Contoso.Dependencies</UniqueName>
+    <LocalizedNames>
+      <LocalizedName description="Contoso Dependencies" languagecode="1033" />
+    </LocalizedNames>
+    <Version>1.0.0.0</Version>
+    <Managed>0</Managed>
+    <Publisher>
+      <UniqueName>Contoso</UniqueName>
+      <LocalizedNames>
+        <LocalizedName description="Contoso Publisher" languagecode="1033" />
+      </LocalizedNames>
+      <CustomizationPrefix>con</CustomizationPrefix>
+    </Publisher>
+    <RootComponents />
+    <MissingDependencies>
+      <MissingDependency>
+        <Required type="1" schemaName="msdyn_workorder" displayName="Work Order" />
+        <Dependency type="1" schemaName="con_inspection" displayName="Inspection" />
+      </MissingDependency>
+    </MissingDependencies>
+  </SolutionManifest>
+</ImportExportXml>`
+
+describe('missing dependencies', () => {
+  it('clears the list but keeps an empty element in the rebuilt ZIP', async () => {
+    const zip = new JSZip()
+    zip.file('solution.xml', dependenciesSolutionXml)
+    const bytes = await zip.generateAsync({ type: 'uint8array' })
+    const file = new File(
+      [bytes.buffer as ArrayBuffer],
+      'Contoso.Dependencies_1.0.0.0_unmanaged.zip',
+      { type: 'application/zip' },
+    )
+
+    const pkg = await loadSolutionPackage(file)
+    expect(pkg.solution.missingDependencies).toHaveLength(1)
+
+    const edits = initialEdits(pkg)
+    edits.removeMissingDependencies = true
+    const result = await buildEditedPackage(pkg, edits)
+
+    const output = await JSZip.loadAsync(await result.blob.arrayBuffer())
+    const solution = await output.file('solution.xml')!.async('string')
+    expect(solution).toContain('<MissingDependencies />')
+    expect(solution).not.toContain('</MissingDependencies>')
+    expect(solution).not.toContain('msdyn_workorder')
+  })
+})

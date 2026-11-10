@@ -45,7 +45,7 @@ export function DependenciesTab({
           <Toggle
             checked={edits.removeMissingDependencies}
             onChange={(next) => onChange({ removeMissingDependencies: next })}
-            label="Remove on download"
+            label="Clear on download"
             danger
           />
         ) : null}
@@ -73,10 +73,11 @@ export function DependenciesTab({
             <div className="notice notice-danger">
               <Eraser size={19} />
               <div>
-                <strong>Removal is enabled for the next download.</strong>
+                <strong>Clearing is enabled for the next download.</strong>
                 <p>
-                  The entire MissingDependencies element will be deleted from solution.xml. Only do this when
-                  every required component is already installed in the target environment.
+                  The MissingDependencies list will be emptied to <code>&lt;MissingDependencies /&gt;</code>,
+                  keeping the element the importer expects. Only do this when every required component is
+                  already installed in the target environment.
                 </p>
               </div>
             </div>
@@ -89,7 +90,7 @@ export function DependenciesTab({
                 </strong>
                 <p>
                   Importing with unresolved dependencies can fail or produce warnings. Review each requirement
-                  below or remove the block if you know the target environment already satisfies them.
+                  below or clear the list if you know the target environment already satisfies them.
                 </p>
               </div>
             </div>
@@ -139,7 +140,7 @@ export function DependenciesTab({
             icon={<Link2Off size={18} />}
             actions={
               <Badge tone={edits.removeMissingDependencies ? 'danger' : 'warning'} dot>
-                {edits.removeMissingDependencies ? 'Will be removed' : 'Will be preserved'}
+                {edits.removeMissingDependencies ? 'Will be cleared' : 'Will be preserved'}
               </Badge>
             }
           >
@@ -190,14 +191,18 @@ export function DependenciesTab({
 
           <div className="overview-columns">
             <SectionCard
-              title="What removal actually does"
+              title="What clearing actually does"
               description="A precise description of the ZIP edit."
               icon={<CircleHelp size={18} />}
             >
               <ul className="explain-list">
                 <li>
-                  <strong>It removes metadata, not dependencies.</strong> The components still need to exist in
+                  <strong>It clears metadata, not dependencies.</strong> The components still need to exist in
                   the target environment.
+                </li>
+                <li>
+                  <strong>It keeps the element as an empty <code>&lt;MissingDependencies /&gt;</code>.</strong>{' '}
+                  Dataverse exports always include it, and removing the node itself can break import.
                 </li>
                 <li>
                   <strong>It prevents the importer from blocking on the missing list.</strong> This is commonly

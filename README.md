@@ -15,8 +15,9 @@ bytes never leave your machine.
   components, ZIP entries, environment variables and connection references.
 - **Version editing** — edit `major.minor.build.revision` directly, use one-click bump buttons, or
   apply a version from local download history.
-- **Missing dependencies** — review every `<MissingDependency>` entry and optionally strip the whole
-  `<MissingDependencies>` block on download. The original package is never modified.
+- **Missing dependencies** — review every `<MissingDependency>` entry and optionally clear the list on
+  download. The element is kept as an empty `<MissingDependencies />`, matching what Dataverse exports
+  and expects; the original package is never modified.
 - **Environment variables** — see defaults and current values, edit values, and write them back into
   `customizations.xml` or the modern `environmentvariabledefinitions/<name>/environmentvariablevalues.json`
   sidecar files. Managed exports are supported.
@@ -45,8 +46,10 @@ Two deliberate limitations are surfaced in the UI:
 
 - Changing `<Managed>` only changes the manifest flag. It is **not** a managed/unmanaged conversion.
   Real conversion happens by exporting or importing in Dataverse.
-- Removing `<MissingDependencies>` removes metadata, not the dependencies themselves. The required
-  components must already exist in the target environment.
+- Clearing the `<MissingDependencies>` list removes metadata, not the dependencies themselves. The
+  required components must already exist in the target environment. The element itself is kept as
+  `<MissingDependencies />` because every Dataverse export includes it and deleting the node can make
+  import fail with a generic "Object reference not set to an instance of an object" error.
 
 Connection reference merging only applies to references on the exact same connector (Dataverse and
 its legacy variants are not interchangeable). Canvas apps (`.msapp`) are binary and cannot be
@@ -100,7 +103,7 @@ Pages, Azure Static Web Apps, an internal web server, and so on).
 
 1. Start from the original XML or an applied raw XML override.
 2. Write the target version and managed flag into `solution.xml`.
-3. Remove `<MissingDependencies>` when requested.
+3. Clear the `<MissingDependencies>` list when requested, keeping an empty `<MissingDependencies />`.
 4. Write edited environment variable values into each `environmentvariablevalues.json` sidecar, or
    into `customizations.xml` when no sidecar exists.
 5. Validate the edited XML documents.

@@ -110,11 +110,11 @@ export function buildHealthReport(
     if (edits.removeMissingDependencies) {
       add({
         id: 'missing-dependencies',
-        label: 'Missing dependencies will be removed',
+        label: 'Missing dependencies will be cleared',
         status: 'pass',
         detail: `${pkg.solution.missingDependencies.length} missing dependenc${
           pkg.solution.missingDependencies.length === 1 ? 'y' : 'ies'
-        } will be stripped from solution.xml. Verify the target environment has them.`,
+        } will be cleared from solution.xml, leaving an empty <MissingDependencies /> element. Verify the target environment has them.`,
         category: 'deployment',
       })
     } else {

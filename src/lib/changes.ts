@@ -30,9 +30,9 @@ export function buildChangeList(
   if (edits.removeMissingDependencies && pkg.solution.hasMissingDependenciesNode) {
     changes.push({
       id: 'missing-dependencies',
-      label: 'MissingDependencies block',
+      label: 'MissingDependencies list',
       before: `${pkg.solution.missingDependencies.length} entries`,
-      after: 'Removed',
+      after: 'Cleared',
       category: 'solution',
     })
   }

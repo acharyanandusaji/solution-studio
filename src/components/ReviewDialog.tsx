@@ -247,10 +247,10 @@ export function ReviewDialog({
             onChange={(event) => setAcknowledged(event.target.checked)}
           />
           <span>
-            <strong>I understand the MissingDependencies block will be deleted.</strong>
+            <strong>I understand the MissingDependencies list will be cleared.</strong>
             <span>
-              The required components must already exist in the target environment. Removing metadata does not
-              install them.
+              The element stays as an empty <code>&lt;MissingDependencies /&gt;</code>, but the required
+              components must already exist in the target environment. Clearing metadata does not install them.
             </span>
           </span>
           <AlertTriangle size={16} />
