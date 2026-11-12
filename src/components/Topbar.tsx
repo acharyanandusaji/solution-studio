@@ -4,6 +4,7 @@ import { Badge, Button, IconButton } from './ui'
 
 const TAB_LABELS: Record<TabId, string> = {
   overview: 'Overview',
+  cloud: 'Power Platform',
   solution: 'Solution settings',
   environment: 'Environment variables',
   connections: 'Connection references',

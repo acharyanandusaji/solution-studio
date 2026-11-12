@@ -3,6 +3,7 @@ import {
   Boxes,
   Cable,
   ChevronRight,
+  Cloud,
   CircleCheck,
   FileCode2,
   FileJson,
@@ -29,6 +30,7 @@ const NAV: Array<{
   group: 'Workspace' | 'Package'
 }> = [
   { id: 'overview', label: 'Overview', icon: <LayoutDashboard size={18} />, group: 'Workspace' },
+  { id: 'cloud', label: 'Power Platform', icon: <Cloud size={18} />, group: 'Workspace' },
   { id: 'solution', label: 'Solution', icon: <Settings2 size={18} />, group: 'Workspace' },
   { id: 'environment', label: 'Environment variables', icon: <Variable size={18} />, group: 'Workspace' },
   { id: 'connections', label: 'Connection references', icon: <Cable size={18} />, group: 'Workspace' },

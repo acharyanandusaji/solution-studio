@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   DeploymentProfile,
   SolutionEdits,
@@ -43,6 +43,19 @@ import { ReviewDialog } from './components/ReviewDialog'
 import { BusyOverlay, ConfirmDialog } from './components/Dialogs'
 import { ToastStack } from './components/ui'
 
+const CloudTab = lazy(async () => {
+  const module = await import('./components/CloudTab')
+  return { default: module.CloudTab }
+})
+
+function CloudLoading() {
+  return (
+    <div className="cloud-page">
+      <div className="cloud-loading">Loading the Power Platform connection…</div>
+    </div>
+  )
+}
+
 export default function App() {
   const [pkg, setPkg] = useState<SolutionPackage | null>(null)
   const [edits, setEdits] = useState<SolutionEdits | null>(null)
@@ -54,6 +67,7 @@ export default function App() {
   const [reviewOpen, setReviewOpen] = useState(false)
   const [discardOpen, setDiscardOpen] = useState(false)
   const [sampleLoading, setSampleLoading] = useState(false)
+  const [cloudOpen, setCloudOpen] = useState(false)
   const [toasts, setToasts] = useState<ToastMessage[]>([])
   const [history, setHistory] = useState<VersionHistoryEntry[]>([])
   const [profiles, setProfiles] = useState<DeploymentProfile[]>([])
@@ -116,6 +130,14 @@ export default function App() {
       setSampleLoading(false)
     }
   }
+
+  const handleCloudExported = useCallback(
+    async (file: File) => {
+      setCloudOpen(false)
+      await loadFile(file)
+    },
+    [loadFile],
+  )
 
   const updateEdits = useCallback((patch: Partial<SolutionEdits>) => {
     setEdits((current) => (current ? { ...current, ...patch } : current))
@@ -219,6 +241,18 @@ export default function App() {
     [pkg, edits],
   )
 
+  const buildForImport = useCallback(async () => {
+    if (!pkg || !edits || !health) {
+      throw new Error('Load a solution package before importing.')
+    }
+    if (health.failed > 0) {
+      throw new Error(
+        'Fix the failed package checks before importing. Open the review dialog to see what needs attention.',
+      )
+    }
+    return buildEditedPackage(pkg, edits)
+  }, [pkg, edits, health])
+
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
@@ -289,6 +323,7 @@ export default function App() {
     setUploadError(undefined)
     setTab('overview')
     setMobileNav(false)
+    setCloudOpen(false)
     setReviewOpen(false)
     setDiscardOpen(false)
     toast('info', 'Workspace reset', 'Upload another solution ZIP to continue.')
@@ -360,6 +395,17 @@ export default function App() {
             onBumpBuild={() => updateEdits({ version: bumpVersion(edits.version, 2) })}
           />
         ) : null}
+        {tab === 'cloud' ? (
+          <Suspense fallback={<CloudLoading />}>
+            <CloudTab
+              pkg={pkg}
+              edits={edits}
+              onExported={handleCloudExported}
+              onBuildPackage={buildForImport}
+              onNotify={(kind, title, detail) => toast(kind, title, detail)}
+            />
+          </Suspense>
+        ) : null}
         {tab === 'solution' ? (
           <SolutionTab
             pkg={pkg}
@@ -427,12 +473,24 @@ export default function App() {
   return (
     <>
       {!pkg || !edits || !health ? (
-        <UploadScreen
-          onFile={loadFile}
-          onSample={() => void handleSample()}
-          sampleLoading={sampleLoading}
-          error={uploadError}
-        />
+        cloudOpen ? (
+          <Suspense fallback={<CloudLoading />}>
+            <CloudTab
+              standalone
+              onClose={() => setCloudOpen(false)}
+              onExported={handleCloudExported}
+              onNotify={(kind, title, detail) => toast(kind, title, detail)}
+            />
+          </Suspense>
+        ) : (
+          <UploadScreen
+            onFile={loadFile}
+            onSample={() => void handleSample()}
+            sampleLoading={sampleLoading}
+            error={uploadError}
+            onCloud={() => setCloudOpen(true)}
+          />
+        )
       ) : (
         <div className="app-shell">
           <Sidebar
@@ -459,7 +517,7 @@ export default function App() {
             />
             <main className="app-content">{content}</main>
             <footer className="app-footer">
-              <span>Solution Studio · Local-only Power Platform ALM utility</span>
+              <span>Solution Studio · Local-first Power Platform ALM utility</span>
               <span>Original packages are never modified</span>
             </footer>
           </div>

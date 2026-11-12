@@ -187,6 +187,7 @@ export interface ToastMessage {
 
 export type TabId =
   | 'overview'
+  | 'cloud'
   | 'solution'
   | 'environment'
   | 'connections'

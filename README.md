@@ -2,10 +2,12 @@
 
 A local-first workbench for Power Platform solution ZIPs. Upload an exported solution, inspect its
 metadata, fix the usual deployment blockers, then download a rebuilt ZIP and a matching
-`DeploymentSettings.json`.
+`DeploymentSettings.json` — or connect to Power Platform to export and import without the manual
+round-trip.
 
-Everything runs in the browser. There is no backend, database, account, or telemetry. Your solution
-bytes never leave your machine.
+The editor runs entirely in the browser. There is no backend, database, or telemetry. Local editing
+never uploads your solution bytes. The optional Power Platform connection uses delegated Microsoft
+sign-in and talks directly to Microsoft APIs from your browser.
 
 **Live app:** https://acharyanandusaji.github.io/solution-studio/
 
@@ -32,6 +34,9 @@ bytes never leave your machine.
 - **Deployment settings** — generate a PAC CLI-compatible `DeploymentSettings.json`, copy or download
   it, and import existing settings files.
 - **Review before download** — a change set and pre-import health report gate the download.
+- **Direct export and import** — optionally sign in with a Microsoft work account, discover your
+  environments, export a solution into the workspace, edit it, choose a target environment and start
+  the Dataverse import from the page. Progress and the import log are shown inline.
 - **Extras** — ZIP explorer with text previews, raw XML editor with validation, CRC integrity check,
   local deployment profiles, version history, and a built-in sample solution.
 
@@ -75,6 +80,81 @@ npm run preview   # serve the production build locally
 npm run lint      # run oxlint
 npm test          # run the XML/unit tests once
 ```
+
+## Connecting to Power Platform
+
+The cloud flow is optional. Without it, upload and download work exactly as before. To export and
+import directly, register a single-page application in Microsoft Entra ID once per tenant.
+
+### 1. Register the app
+
+1. In the [Microsoft Entra admin center](https://entra.microsoft.com/), open **App registrations** and
+   choose **New registration**.
+2. Name it (for example `Solution Studio`) and choose the account types your organisation uses.
+   **Accounts in any organizational directory** is the most flexible.
+3. Under **Authentication → Single-page application**, add the redirect URI for the page you use:
+   - GitHub Pages: `https://acharyanandusaji.github.io/solution-studio/`
+   - Local development: the URL Vite prints, for example `http://localhost:5173/`
+   The URI must match exactly, including the trailing slash.
+4. Copy the **Application (client) ID**. This is not a secret and is safe to paste into the app.
+
+### 2. Grant delegated permissions
+
+Under **API permissions → Add a permission**, add:
+
+| API | Permission | Type |
+| --- | --- | --- |
+| Dynamics CRM | `user_impersonation` | Delegated |
+| Power Platform API (`8578e004-a5c6-46e7-913e-12f58912df43`) | `EnvironmentManagement.Environments.Read` | Delegated |
+| Power Apps Service (`475226c6-020e-4fb2-8a90-7a972cbfc1d4`) | `user_impersonation` | Delegated (legacy fallback) |
+
+The Power Platform API permission is used for environment discovery. The Power Apps Service
+permission is optional and only needed by older registrations: if the current API fails, the app
+retries with the legacy BAP endpoint. If the Power Platform API is not visible in the permission
+picker, create its service principal first (see the Microsoft Learn authentication article) or use
+only the legacy permission and paste environment URLs manually.
+
+Then choose **Grant admin consent**. Without consent, sign-in or token acquisition fails with a
+consent error. The app never requests application permissions and holds no client secret.
+
+### 3. Use it
+
+1. Open the **Power Platform** tab (or **Connect to Power Platform** on the upload screen).
+2. Paste the client ID, keep the tenant as `organizations` (or enter your tenant ID/domain) and save.
+3. Sign in with your Microsoft work account. The app discovers environments through the current Power
+   Platform API and falls back to the legacy admin API; you can also paste any Dataverse URL manually.
+4. Pick the source environment, load its solutions, and choose **Export & edit**. The exported ZIP is
+   loaded into the workspace like an uploaded file.
+5. Edit version, managed flag, environment variables, connections and dependencies as usual.
+6. In the **Power Platform** tab, choose the target environment, review the import options and confirm.
+   The app rebuilds the ZIP in memory, calls `ImportSolutionAsync`, polls the async operation and shows
+   the result plus the import log when the import fails.
+
+### Security model
+
+- Authorization code flow with PKCE through MSAL; no client secret exists in the static bundle.
+- Access tokens are cached in `sessionStorage` for the current tab only. Signing out clears the cache;
+  closing the tab discards it.
+- Only the client ID and tenant are persisted, in `localStorage`.
+- Requests go directly from your browser to `login.microsoftonline.com`,
+  `api.powerplatform.com` (or `api.bap.microsoft.com` on the legacy fallback) and your Dataverse org.
+  There is no proxy or backend.
+- The app can only do what the signed-in user is already allowed to do. Admin consent grants the
+  permission to request a token, not extra Dataverse privileges.
+
+### Cloud limitations
+
+- Environment discovery needs an account that can read the Power Platform environment list. If the
+  list is empty or discovery is denied, paste the environment URL directly.
+- Import is destructive. The confirmation dialog and acknowledgment are mandatory, and the app blocks
+  the import when the pre-import health report has failed checks. Keep a backup solution in the target.
+- Connection references are sent as `ComponentParameters` only when **Bind connection references** is
+  enabled and the deployment settings contain a connection ID. Environment variable values travel in
+  the rebuilt ZIP.
+- Canvas app (`.msapp`) binaries still cannot be rewritten, so their embedded connections must be
+  verified after import. This applies to both the manual and cloud flows.
+- `ImportSolutionAsync` continues server-side even if you close the tab. Check solution history in the
+  Power Apps maker portal if you lose the progress view.
 
 ## Deploying to GitHub Pages (free)
 
@@ -134,13 +214,15 @@ pac solution import --path Contoso.SampleSolution_1.0.0.43_unmanaged.zip \
 
 ## Local data
 
-Version history and deployment profiles use `localStorage`, keyed by solution unique name. They never
-leave the browser and can be cleared from the UI. No solution content is persisted anywhere else.
+Version history, deployment profiles and the Power Platform app configuration use `localStorage`,
+keyed by solution unique name (or a single cloud config entry). They never leave the browser and can
+be cleared from the UI. Cloud access tokens use `sessionStorage` and never leave the browser tab. No
+solution content is persisted anywhere else.
 
 ## Tech stack
 
-React 19, TypeScript, Vite, JSZip, fast-xml-parser and lucide-react. Styling is hand-written CSS with
-no UI framework.
+React 19, TypeScript, Vite, JSZip, fast-xml-parser, MSAL Browser and lucide-react. Styling is
+hand-written CSS with no UI framework.
 
 ## License
 

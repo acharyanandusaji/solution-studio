@@ -3,6 +3,7 @@ import {
   ArrowRight,
   Boxes,
   CheckCircle2,
+  Cloud,
   FileArchive,
   FileCode2,
   LockKeyhole,
@@ -23,11 +24,13 @@ export function UploadScreen({
   onSample,
   sampleLoading,
   error,
+  onCloud,
 }: {
   onFile: (file: File) => void
   onSample: () => void
   sampleLoading: boolean
   error?: string
+  onCloud?: () => void
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [dragging, setDragging] = useState(false)
@@ -77,8 +80,8 @@ export function UploadScreen({
           </h1>
           <p className="hero-lead">
             Inspect, fix and repackage solution ZIPs entirely in your browser. Update versions, clean up
-            missing dependencies, tune environment variables and export deployment settings — without
-            uploading a single byte.
+            missing dependencies, tune environment variables and export deployment settings — or connect
+            to Power Platform to export and import without the manual round-trip.
           </p>
 
           <ul className="hero-points">
@@ -99,8 +102,11 @@ export function UploadScreen({
           <div className="privacy-strip">
             <LockKeyhole size={18} />
             <div>
-              <strong>Your solution never leaves this device.</strong>
-              <span>All extraction, XML editing and ZIP rebuilding happens locally in your browser.</span>
+              <strong>Local editing stays on this device.</strong>
+              <span>
+                Extraction, XML editing and ZIP rebuilding happen in your browser. The optional Power
+                Platform connection only sends what you explicitly export or import.
+              </span>
             </div>
           </div>
         </section>
@@ -177,6 +183,23 @@ export function UploadScreen({
             </div>
 
             {error ? <div className="upload-error">{error}</div> : null}
+
+            {onCloud ? (
+              <div className="upload-cloud">
+                <div className="upload-cloud-copy">
+                  <span className="upload-cloud-icon">
+                    <Cloud size={18} />
+                  </span>
+                  <div>
+                    <strong>Work directly with an environment</strong>
+                    <span>Sign in, export a solution, edit it here, then import it straight back.</span>
+                  </div>
+                </div>
+                <Button variant="secondary" icon={<Cloud size={16} />} onClick={onCloud}>
+                  Connect to Power Platform
+                </Button>
+              </div>
+            ) : null}
 
             <div className="upload-panel-foot">
               <div className="mini-step">
