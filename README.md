@@ -6,9 +6,8 @@ metadata, fix the usual deployment blockers, then download a rebuilt ZIP and a m
 round-trip.
 
 The editor runs entirely in the browser. There is no backend, database, or telemetry. Local editing
-never uploads your solution bytes. The optional Power Platform connection either uses delegated
-Microsoft sign-in (MSAL) or a local token broker that reuses your Azure CLI login; both talk directly
-to Microsoft APIs.
+never uploads your solution bytes. The optional Power Platform connection uses delegated Microsoft
+sign-in and talks directly to Microsoft APIs from your browser.
 
 **Live app:** https://acharyanandusaji.github.io/solution-studio/
 
@@ -84,66 +83,10 @@ npm test          # run the XML/unit tests once
 
 ## Connecting to Power Platform
 
-The cloud flow is optional. Without it, upload and download work exactly as before. There are two
-ways to authenticate; pick one.
+The cloud flow is optional. Without it, upload and download work exactly as before. To export and
+import directly, register a single-page application in Microsoft Entra ID once per tenant.
 
-### Option A — Local token broker (no app registration)
-
-Use this when you cannot create an Entra app registration. The broker is a small Node script
-(`tools/token-broker.mjs`) that reuses your existing Azure CLI login to mint short-lived tokens for
-the page. No client ID, admin consent or manual token paste is involved.
-
-1. Install the [Azure CLI](https://learn.microsoft.com/cli/azure/install-azure-cli) and sign in once:
-
-   ```bash
-   az login
-   ```
-
-2. From the project folder, start the broker:
-
-   ```bash
-   npm run broker
-   # equivalent: node tools/token-broker.mjs
-   ```
-
-   It prints a **broker URL** (`http://127.0.0.1:4319`) and a random **broker key**.
-
-3. Open the **Power Platform** tab (or **Connect to Power Platform** on the upload screen), choose
-   **Local token broker**, paste both values and save.
-
-4. Choose **Connect to broker**. Environment discovery, export and import then use tokens minted by
-   the helper.
-
-The helper only calls `az account get-access-token`. It does not read or store your password, and it
-does not need a client secret.
-
-Optional flags:
-
-```bash
-node tools/token-broker.mjs --port 4319 --key <fixed-key> --origin https://your-site.example
-```
-
-`PORT`, `BROKER_KEY` and `BROKER_ORIGINS` (comma-separated) are also supported.
-
-Broker security model:
-
-- Listens on `127.0.0.1` only, so other machines cannot reach it.
-- Requires the random key on every request (`X-Broker-Key`).
-- Only allows the Solution Studio GitHub Pages origin, loopback origins and any origin passed with
-  `--origin`.
-- Only requests tokens for `api.powerplatform.com`, `service.powerapps.com`,
-  `api.bap.microsoft.com` and `*.crm*.dynamics.com` Dataverse orgs.
-- Caches tokens in memory and refreshes them shortly before expiry.
-- The page stores the broker URL and key in `localStorage`; access tokens stay in memory.
-
-Stop the broker with Ctrl+C. Run `az logout` to end the Azure CLI session it uses.
-
-### Option B — Entra app registration
-
-This is the fully browser-based alternative. Register a single-page application in Microsoft Entra
-ID once per tenant.
-
-#### 1. Register the app
+### 1. Register the app
 
 1. In the [Microsoft Entra admin center](https://entra.microsoft.com/), open **App registrations** and
    choose **New registration**.
@@ -155,7 +98,7 @@ ID once per tenant.
    The URI must match exactly, including the trailing slash.
 4. Copy the **Application (client) ID**. This is not a secret and is safe to paste into the app.
 
-#### 2. Grant delegated permissions
+### 2. Grant delegated permissions
 
 Under **API permissions → Add a permission**, add:
 
@@ -174,7 +117,7 @@ only the legacy permission and paste environment URLs manually.
 Then choose **Grant admin consent**. Without consent, sign-in or token acquisition fails with a
 consent error. The app never requests application permissions and holds no client secret.
 
-#### 3. Use it
+### 3. Use it
 
 1. Open the **Power Platform** tab (or **Connect to Power Platform** on the upload screen).
 2. Paste the client ID, keep the tenant as `organizations` (or enter your tenant ID/domain) and save.
@@ -187,7 +130,7 @@ consent error. The app never requests application permissions and holds no clien
    The app rebuilds the ZIP in memory, calls `ImportSolutionAsync`, polls the async operation and shows
    the result plus the import log when the import fails.
 
-#### Security model (Entra)
+### Security model
 
 - Authorization code flow with PKCE through MSAL; no client secret exists in the static bundle.
 - Access tokens are cached in `sessionStorage` for the current tab only. Signing out clears the cache;
@@ -203,9 +146,6 @@ consent error. The app never requests application permissions and holds no clien
 
 - Environment discovery needs an account that can read the Power Platform environment list. If the
   list is empty or discovery is denied, paste the environment URL directly.
-- In broker mode, the helper uses whichever account `az` is currently signed into. If an environment
-  returns `The user is not a member of the organization`, sign the CLI into the matching tenant with
-  `az login --tenant <tenant-id>` and retry. The page's MSAL sign-in is independent of the CLI session.
 - Import is destructive. The confirmation dialog and acknowledgment are mandatory, and the app blocks
   the import when the pre-import health report has failed checks. Keep a backup solution in the target.
 - Connection references are sent as `ComponentParameters` only when **Bind connection references** is
@@ -275,10 +215,9 @@ pac solution import --path Contoso.SampleSolution_1.0.0.43_unmanaged.zip \
 ## Local data
 
 Version history, deployment profiles and the Power Platform app configuration use `localStorage`,
-keyed by solution unique name (or a single cloud config entry). In broker mode that entry includes
-the broker URL and key, so you do not have to re-enter them. They never leave the browser and can be
-cleared from the UI. MSAL access tokens use `sessionStorage`; broker tokens stay in the helper's
-memory and are never persisted by the page. No solution content is persisted anywhere else.
+keyed by solution unique name (or a single cloud config entry). They never leave the browser and can
+be cleared from the UI. Cloud access tokens use `sessionStorage` and never leave the browser tab. No
+solution content is persisted anywhere else.
 
 ## Tech stack
 
