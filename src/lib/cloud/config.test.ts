@@ -9,6 +9,22 @@ import {
   saveCloudConfig,
 } from './config'
 
+const ENTRA_CONFIG = {
+  authMode: 'entra' as const,
+  clientId: '11111111-1111-1111-1111-111111111111',
+  tenantId: 'organizations',
+  brokerUrl: 'http://127.0.0.1:4319',
+  brokerKey: '',
+}
+
+const BROKER_CONFIG = {
+  authMode: 'broker' as const,
+  clientId: '',
+  tenantId: 'organizations',
+  brokerUrl: 'http://127.0.0.1:4319',
+  brokerKey: 'a'.repeat(32),
+}
+
 function installStorage(initial: Record<string, string> = {}) {
   const data = new Map(Object.entries(initial))
   const storage = {
@@ -32,20 +48,31 @@ describe('cloud config', () => {
   it('returns defaults when nothing is stored', () => {
     installStorage()
     expect(getCloudConfig()).toEqual(DEFAULT_CLOUD_CONFIG)
+    expect(DEFAULT_CLOUD_CONFIG.authMode).toBe('broker')
   })
 
-  it('saves and reads the configuration', () => {
+  it('saves and reads an Entra configuration', () => {
     installStorage()
-    saveCloudConfig({ clientId: '  11111111-1111-1111-1111-111111111111  ', tenantId: 'contoso.onmicrosoft.com' })
+    saveCloudConfig({
+      ...ENTRA_CONFIG,
+      clientId: '  11111111-1111-1111-1111-111111111111  ',
+      tenantId: 'contoso.onmicrosoft.com',
+    })
     expect(getCloudConfig()).toEqual({
-      clientId: '11111111-1111-1111-1111-111111111111',
+      ...ENTRA_CONFIG,
       tenantId: 'contoso.onmicrosoft.com',
     })
   })
 
+  it('saves and reads a broker configuration', () => {
+    installStorage()
+    saveCloudConfig({ ...BROKER_CONFIG, brokerUrl: '127.0.0.1:4319/', brokerKey: `  ${BROKER_CONFIG.brokerKey}  ` })
+    expect(getCloudConfig()).toEqual(BROKER_CONFIG)
+  })
+
   it('falls back to organizations for an empty tenant', () => {
     installStorage()
-    saveCloudConfig({ clientId: '11111111-1111-1111-1111-111111111111', tenantId: '   ' })
+    saveCloudConfig({ ...ENTRA_CONFIG, tenantId: '   ' })
     expect(getCloudConfig().tenantId).toBe('organizations')
   })
 
@@ -56,20 +83,48 @@ describe('cloud config', () => {
 
   it('clears the stored configuration', () => {
     const data = installStorage()
-    saveCloudConfig({ clientId: '11111111-1111-1111-1111-111111111111', tenantId: 'organizations' })
+    saveCloudConfig(ENTRA_CONFIG)
     clearCloudConfig()
     expect(data.size).toBe(0)
   })
 
-  it('only accepts GUID-shaped client IDs', () => {
-    expect(isCloudConfigured({ clientId: '', tenantId: 'organizations' })).toBe(false)
-    expect(isCloudConfigured({ clientId: 'solution-studio', tenantId: 'organizations' })).toBe(false)
-    expect(
-      isCloudConfigured({
+  it('treats pre-broker configs with a client ID as Entra mode', () => {
+    installStorage({
+      'solution-studio:cloud-config:v1': JSON.stringify({
         clientId: '11111111-1111-1111-1111-111111111111',
         tenantId: 'organizations',
       }),
-    ).toBe(true)
+    })
+    const config = getCloudConfig()
+    expect(config.authMode).toBe('entra')
+    expect(config.brokerKey).toBe('')
+  })
+
+  it('treats pre-broker configs without a client ID as broker mode', () => {
+    installStorage({
+      'solution-studio:cloud-config:v1': JSON.stringify({ clientId: '', tenantId: 'organizations' }),
+    })
+    expect(getCloudConfig().authMode).toBe('broker')
+  })
+
+  it('rejects an invalid stored broker URL', () => {
+    installStorage({
+      'solution-studio:cloud-config:v1': JSON.stringify({ ...BROKER_CONFIG, brokerUrl: 'https://example.com' }),
+    })
+    expect(getCloudConfig().brokerUrl).toBe('http://127.0.0.1:4319')
+  })
+
+  it('only accepts GUID-shaped client IDs in Entra mode', () => {
+    expect(isCloudConfigured({ ...ENTRA_CONFIG, clientId: '' })).toBe(false)
+    expect(isCloudConfigured({ ...ENTRA_CONFIG, clientId: 'solution-studio' })).toBe(false)
+    expect(isCloudConfigured(ENTRA_CONFIG)).toBe(true)
+  })
+
+  it('requires a loopback URL and a key in broker mode', () => {
+    expect(isCloudConfigured({ ...BROKER_CONFIG, brokerKey: '' })).toBe(false)
+    expect(isCloudConfigured({ ...BROKER_CONFIG, brokerUrl: 'https://example.com' })).toBe(false)
+    expect(isCloudConfigured({ ...BROKER_CONFIG, brokerUrl: 'http://localhost:4319' })).toBe(true)
+    expect(isCloudConfigured(BROKER_CONFIG)).toBe(true)
   })
 
   it('builds an encoded authority URL', () => {

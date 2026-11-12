@@ -8,7 +8,8 @@
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "test": "vitest run",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "broker": "node tools/token-broker.mjs"
   },
   "dependencies": {
     "@azure/msal-browser": "^5.29.0",

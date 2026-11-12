@@ -70,7 +70,10 @@ export async function listSolutions(
   accessToken: string,
 ): Promise<CloudSolution[]> {
   const query = new URLSearchParams({
-    $select: 'solutionid,uniquename,friendlyname,version,ismanaged,isparent',
+    // `isparent` is not an attribute on the solution entity. A solution is a
+    // patch when it has a parent; parent solutions have a null parent lookup.
+    $select:
+      'solutionid,uniquename,friendlyname,version,ismanaged,isvisible,_parentsolutionid_value',
     $orderby: 'friendlyname asc',
   })
 
@@ -91,7 +94,10 @@ export async function listSolutions(
       const uniqueName = typeof raw.uniquename === 'string' ? raw.uniquename : ''
       if (!uniqueName) continue
       if (SYSTEM_SOLUTIONS.has(uniqueName.toLowerCase())) continue
-      if (raw.isparent === false) continue
+      if (raw.isvisible === false) continue
+      // Skip patches and patches-of-patches; only parent solutions can be
+      // exported and imported as a complete solution.
+      if (typeof raw._parentsolutionid_value === 'string' && raw._parentsolutionid_value) continue
       const friendly = typeof raw.friendlyname === 'string' ? raw.friendlyname : ''
       collected.push({
         solutionId: typeof raw.solutionid === 'string' ? raw.solutionid : '',
@@ -99,7 +105,7 @@ export async function listSolutions(
         displayName: friendly || uniqueName,
         version: typeof raw.version === 'string' ? raw.version : '',
         managed: raw.ismanaged === true,
-        isParent: raw.isparent !== false,
+        isParent: !raw._parentsolutionid_value,
       })
     }
     next = payload['@odata.nextLink']

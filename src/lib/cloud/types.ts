@@ -1,8 +1,19 @@
+/**
+ * `broker` uses the local token helper (no app registration). `entra` uses an
+ * SPA registration and MSAL popup sign-in.
+ */
+export type CloudAuthMode = 'broker' | 'entra'
+
 export interface CloudConfig {
+  authMode: CloudAuthMode
   /** Application (client) ID of the Entra SPA registration. */
   clientId: string
   /** Tenant ID or verified domain. `organizations` works for any work account. */
   tenantId: string
+  /** Origin of the local token broker, for example http://127.0.0.1:4319. */
+  brokerUrl: string
+  /** Random key printed by the broker. Persisted locally, never sent anywhere else. */
+  brokerKey: string
 }
 
 export interface CloudEnvironment {

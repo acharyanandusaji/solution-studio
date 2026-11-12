@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react'
-import type { AccountInfo } from '@azure/msal-browser'
 import {
   AlertTriangle,
   ArrowLeft,
@@ -24,7 +23,6 @@ import type { BuildResult } from '../lib/package'
 import { generateDeploymentSettings } from '../lib/package'
 import { cx, formatBytes } from '../lib/format'
 import {
-  acquireToken,
   dataverseScopes,
   describeAuthError,
   getActiveAccount,
@@ -34,11 +32,18 @@ import {
   signOut,
 } from '../lib/cloud/auth'
 import {
+  checkBroker,
+  DEFAULT_BROKER_URL,
+  getBrokerAccount,
+  normalizeBrokerUrl,
+} from '../lib/cloud/broker'
+import {
   cloudRedirectUri,
   getCloudConfig,
   isCloudConfigured,
   saveCloudConfig,
 } from '../lib/cloud/config'
+import { acquireCloudToken } from '../lib/cloud/tokens'
 import {
   buildComponentParameters,
   exportSolution,
@@ -50,6 +55,7 @@ import {
 } from '../lib/cloud/dataverse'
 import { listEnvironments, listEnvironmentsLegacy } from '../lib/cloud/powerplatform'
 import type {
+  CloudAuthMode,
   CloudConfig,
   CloudEnvironment,
   CloudSolution,
@@ -70,6 +76,24 @@ import {
 } from './ui'
 
 type BusyKind = 'signin' | 'environments' | 'solutions' | 'export' | 'import' | null
+
+interface ConnectedAccount {
+  name: string
+  username: string
+  tenantId?: string
+  mode: CloudAuthMode
+}
+
+function configFromDraft(draft: CloudConfig): CloudConfig {
+  return {
+    authMode: draft.authMode,
+    clientId: draft.clientId.trim(),
+    tenantId: draft.tenantId.trim() || 'organizations',
+    brokerUrl:
+      draft.authMode === 'broker' ? normalizeBrokerUrl(draft.brokerUrl) : draft.brokerUrl.trim(),
+    brokerKey: draft.brokerKey.trim(),
+  }
+}
 
 const DEFAULT_IMPORT_OPTIONS: ImportOptions = {
   overwriteUnmanagedCustomizations: false,
@@ -94,14 +118,14 @@ async function discoverEnvironments(
 ): Promise<CloudEnvironment[]> {
   let primaryError: unknown
   try {
-    const token = await acquireToken(config, POWER_PLATFORM_SCOPES, { interactive })
+    const token = await acquireCloudToken(config, POWER_PLATFORM_SCOPES, { interactive })
     return await listEnvironments(token)
   } catch (error) {
     primaryError = error
   }
 
   try {
-    const legacyToken = await acquireToken(config, LEGACY_POWER_PLATFORM_SCOPES, { interactive })
+    const legacyToken = await acquireCloudToken(config, LEGACY_POWER_PLATFORM_SCOPES, { interactive })
     return await listEnvironmentsLegacy(legacyToken)
   } catch {
     throw primaryError
@@ -128,9 +152,10 @@ export function CloudTab({
   const [config, setConfig] = useState<CloudConfig>(() => getCloudConfig())
   const [draft, setDraft] = useState<CloudConfig>(config)
   const [editingConfig, setEditingConfig] = useState(() => !isCloudConfigured(config))
-  const [account, setAccount] = useState<AccountInfo | null>(null)
+  const [account, setAccount] = useState<ConnectedAccount | null>(null)
   const [busy, setBusy] = useState<BusyKind>(null)
   const [authError, setAuthError] = useState<string>()
+  const [brokerTest, setBrokerTest] = useState<{ ok: boolean; message: string } | null>(null)
   const [envError, setEnvError] = useState<string>()
   const [solutionError, setSolutionError] = useState<string>()
   const [environments, setEnvironments] = useState<CloudEnvironment[]>([])
@@ -150,10 +175,29 @@ export function CloudTab({
 
   useEffect(() => {
     let cancelled = false
-    void (async () => {
-      const active = await getActiveAccount(config)
-      if (!cancelled) setAccount(active)
-    })()
+    if (!isCloudConfigured(config)) return
+
+    if (config.authMode === 'broker') {
+      void getBrokerAccount(config)
+        .then((brokerAccount) => {
+          if (!cancelled) setAccount({ ...brokerAccount, mode: 'broker' })
+        })
+        .catch(() => {
+          // The helper may not be running yet. The connect button reports details.
+        })
+    } else {
+      void getActiveAccount(config).then((active) => {
+        if (!cancelled && active) {
+          setAccount({
+            name: active.name || active.username,
+            username: active.username,
+            tenantId: active.tenantId,
+            mode: 'entra',
+          })
+        }
+      })
+    }
+
     return () => {
       cancelled = true
     }
@@ -196,12 +240,19 @@ export function CloudTab({
   }
 
   async function handleSaveConfig() {
-    const next: CloudConfig = {
-      clientId: draft.clientId.trim(),
-      tenantId: draft.tenantId.trim() || 'organizations',
+    let next: CloudConfig
+    try {
+      next = configFromDraft(draft)
+    } catch (error) {
+      setAuthError(describeAuthError(error))
+      return
     }
     if (!isCloudConfigured(next)) {
-      setAuthError('Enter a valid application (client) ID. It is a GUID, not the display name.')
+      setAuthError(
+        next.authMode === 'broker'
+          ? 'Enter the broker URL and the key printed when you started the helper.'
+          : 'Enter a valid application (client) ID. It is a GUID, not the display name.',
+      )
       return
     }
     saveCloudConfig(next)
@@ -209,19 +260,38 @@ export function CloudTab({
     setDraft(next)
     setEditingConfig(false)
     setAuthError(undefined)
+    setBrokerTest(null)
     setAccount(null)
     setEnvironments([])
     setSolutions([])
-    onNotify('success', 'Configuration saved', 'Sign in with your Microsoft work account to continue.')
+    onNotify(
+      'success',
+      'Configuration saved',
+      next.authMode === 'broker'
+        ? 'Start the broker if it is not running, then connect.'
+        : 'Sign in with your Microsoft work account to continue.',
+    )
   }
 
-  async function handleSignIn() {
+  async function handleConnect() {
     setAuthError(undefined)
     setBusy('signin')
     try {
-      const active = await signIn(config)
-      setAccount(active)
-      onNotify('success', 'Signed in', active.username)
+      if (config.authMode === 'broker') {
+        await checkBroker(config)
+        const brokerAccount = await getBrokerAccount(config)
+        setAccount({ ...brokerAccount, mode: 'broker' })
+        onNotify('success', 'Broker connected', brokerAccount.username || 'Azure CLI account')
+      } else {
+        const active = await signIn(config)
+        setAccount({
+          name: active.name || active.username,
+          username: active.username,
+          tenantId: active.tenantId,
+          mode: 'entra',
+        })
+        onNotify('success', 'Signed in', active.username)
+      }
       await refreshEnvironments(false)
     } catch (error) {
       setAuthError(describeAuthError(error))
@@ -230,11 +300,32 @@ export function CloudTab({
     }
   }
 
-  async function handleSignOut() {
+  async function handleTestBroker() {
+    setAuthError(undefined)
+    setBrokerTest(null)
+    setBusy('signin')
     try {
-      await signOut(config)
-    } catch {
-      // Clearing the local cache is best effort.
+      const candidate = configFromDraft({ ...draft, authMode: 'broker' })
+      await checkBroker(candidate)
+      const brokerAccount = await getBrokerAccount(candidate)
+      setBrokerTest({
+        ok: true,
+        message: `Broker reachable. Azure CLI account: ${brokerAccount.username || 'unknown'}.`,
+      })
+    } catch (error) {
+      setBrokerTest({ ok: false, message: describeAuthError(error) })
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  async function handleSignOut() {
+    if (config.authMode === 'entra') {
+      try {
+        await signOut(config)
+      } catch {
+        // Clearing the local cache is best effort.
+      }
     }
     setAccount(null)
     setEnvironments([])
@@ -244,7 +335,13 @@ export function CloudTab({
     setActiveSourceUrl('')
     setProgress(null)
     setResult(null)
-    onNotify('info', 'Signed out', 'Access tokens were removed from this browser tab.')
+    onNotify(
+      'info',
+      config.authMode === 'broker' ? 'Broker disconnected' : 'Signed out',
+      config.authMode === 'broker'
+        ? 'The page stopped using the broker. Run az logout to end the Azure CLI session.'
+        : 'Access tokens were removed from this browser tab.',
+    )
   }
 
   async function handleLoadSolutions() {
@@ -252,7 +349,7 @@ export function CloudTab({
     setBusy('solutions')
     try {
       const org = normalizeOrgUrl(sourceUrl)
-      const token = await acquireToken(config, dataverseScopes(org), { interactive: true })
+      const token = await acquireCloudToken(config, dataverseScopes(org), { interactive: true })
       const list = await listSolutions(org, token)
       setSolutions(list)
       setActiveSourceUrl(org)
@@ -275,7 +372,7 @@ export function CloudTab({
     setBusy('export')
     try {
       const org = activeSourceUrl || normalizeOrgUrl(sourceUrl)
-      const token = await acquireToken(config, dataverseScopes(org), { interactive: true })
+      const token = await acquireCloudToken(config, dataverseScopes(org), { interactive: true })
       const blob = await exportSolution(org, token, selected.uniqueName, exportManaged)
       const suffix = exportManaged ? 'managed' : 'unmanaged'
       const file = new File(
@@ -316,7 +413,7 @@ export function CloudTab({
         message: `Uploading ${built.fileName} (${formatBytes(built.size)}) to ${org}…`,
       })
 
-      const token = await acquireToken(config, dataverseScopes(org), { interactive: true })
+      const token = await acquireCloudToken(config, dataverseScopes(org), { interactive: true })
       const componentParameters = buildComponentParameters(generateDeploymentSettings(pkg, edits))
       const handle = await startImport(org, token, built.blob, importOptions, componentParameters)
 
@@ -380,17 +477,22 @@ export function CloudTab({
       <div className="cloud-privacy notice notice-info">
         <ShieldCheck size={18} />
         <div>
-          <strong>Delegated sign-in, no secrets.</strong>
+          <strong>
+            {config.authMode === 'broker'
+              ? 'Local broker, no app registration.'
+              : 'Delegated sign-in, no secrets.'}
+          </strong>
           <p>
-            The page signs in with the authorization code flow and PKCE. No client secret or refresh
-            token ever leaves this browser tab. Requests go directly to Microsoft.
+            {config.authMode === 'broker'
+              ? 'A helper on your machine uses your existing Azure CLI login to mint short-lived tokens. The page keeps tokens in memory only; the broker key stays in localStorage.'
+              : 'The page signs in with the authorization code flow and PKCE. No client secret or refresh token ever leaves this browser tab. Requests go directly to Microsoft.'}
           </p>
         </div>
       </div>
 
       <SectionCard
         title="Microsoft account"
-        description="Connect an Entra app registration to call Dataverse and the Power Platform API on your behalf."
+        description="Connect through a local token broker or an Entra app registration to call Dataverse and the Power Platform API on your behalf."
         icon={<KeyRound size={18} />}
         actions={
           configured ? (
@@ -400,6 +502,7 @@ export function CloudTab({
               icon={<Settings2 size={15} />}
               onClick={() => {
                 setDraft(config)
+                setBrokerTest(null)
                 setEditingConfig((current) => !current)
               }}
             >
@@ -410,77 +513,222 @@ export function CloudTab({
       >
         {!configured || editingConfig ? (
           <div className="cloud-config">
-            <div className="cloud-config-grid">
-              <Field
-                label="Application (client) ID"
-                hint="From the Entra app registration. A GUID."
-                htmlFor="cloud-client-id"
+            <div className="cloud-auth-modes" role="radiogroup" aria-label="Sign-in method">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={draft.authMode === 'broker'}
+                className={cx('cloud-auth-mode', draft.authMode === 'broker' && 'is-active')}
+                onClick={() => {
+                  setDraft({ ...draft, authMode: 'broker' })
+                  setBrokerTest(null)
+                  setAuthError(undefined)
+                }}
               >
-                <input
-                  id="cloud-client-id"
-                  className="text-input"
-                  value={draft.clientId}
-                  onChange={(event) => setDraft({ ...draft, clientId: event.target.value })}
-                  placeholder="00000000-0000-0000-0000-000000000000"
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-              </Field>
-              <Field
-                label="Tenant ID or domain"
-                hint="Use organizations to accept any work account."
-                htmlFor="cloud-tenant-id"
+                <span className="cloud-auth-mode-head">
+                  <KeyRound size={16} />
+                  <strong>Local token broker</strong>
+                  <Badge tone="success">No registration</Badge>
+                </span>
+                <span className="cloud-auth-mode-copy">
+                  Uses your existing Azure CLI login. Run a small helper on this machine.
+                </span>
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={draft.authMode === 'entra'}
+                className={cx('cloud-auth-mode', draft.authMode === 'entra' && 'is-active')}
+                onClick={() => {
+                  setDraft({ ...draft, authMode: 'entra' })
+                  setBrokerTest(null)
+                  setAuthError(undefined)
+                }}
               >
-                <input
-                  id="cloud-tenant-id"
-                  className="text-input"
-                  value={draft.tenantId}
-                  onChange={(event) => setDraft({ ...draft, tenantId: event.target.value })}
-                  placeholder="contoso.onmicrosoft.com"
-                  autoComplete="off"
-                  spellCheck={false}
-                />
-              </Field>
+                <span className="cloud-auth-mode-head">
+                  <ShieldCheck size={16} />
+                  <strong>Entra app registration</strong>
+                </span>
+                <span className="cloud-auth-mode-copy">
+                  Browser popup sign-in with a client ID and admin-consented permissions.
+                </span>
+              </button>
             </div>
 
-            <div className="cloud-redirect">
-              <div>
-                <span className="cloud-redirect-label">Redirect URI registered in Entra</span>
-                <code>{redirectUri}</code>
-              </div>
-              <CopyButton text={redirectUri} label="Copy URI" />
-            </div>
+            {draft.authMode === 'broker' ? (
+              <>
+                <div className="cloud-config-grid">
+                  <Field
+                    label="Broker URL"
+                    hint="Printed when the helper starts."
+                    htmlFor="cloud-broker-url"
+                  >
+                    <input
+                      id="cloud-broker-url"
+                      className="text-input"
+                      value={draft.brokerUrl}
+                      onChange={(event) => setDraft({ ...draft, brokerUrl: event.target.value })}
+                      placeholder={DEFAULT_BROKER_URL}
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </Field>
+                  <Field
+                    label="Broker key"
+                    hint="Random key printed by the helper. Stored only in this browser."
+                    htmlFor="cloud-broker-key"
+                  >
+                    <input
+                      id="cloud-broker-key"
+                      className="text-input"
+                      type="password"
+                      value={draft.brokerKey}
+                      onChange={(event) => setDraft({ ...draft, brokerKey: event.target.value })}
+                      placeholder="Paste the broker key"
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </Field>
+                </div>
 
-            <ol className="cloud-checklist">
-              <li>
-                <strong>Register a single-page application</strong> in Microsoft Entra ID.
-              </li>
-              <li>
-                Add the redirect URI above under <em>Single-page application</em>.
-              </li>
-              <li>
-                Add delegated permissions: <code>Dynamics CRM → user_impersonation</code> and{' '}
-                <code>Power Platform API → EnvironmentManagement.Environments.Read</code>, then grant
-                admin consent.
-              </li>
-              <li>
-                Older registrations can use <code>Power Apps Service → user_impersonation</code>{' '}
-                instead; the app falls back to the legacy environment API.
-              </li>
-              <li>Paste the application (client) ID and tenant above and save.</li>
-            </ol>
+                <div className="cloud-redirect">
+                  <div>
+                    <span className="cloud-redirect-label">Run in a terminal after az login</span>
+                    <code>node tools/token-broker.mjs</code>
+                  </div>
+                  <CopyButton text="node tools/token-broker.mjs" label="Copy command" />
+                </div>
 
-            <div className="cloud-actions">
-              <Button variant="primary" icon={<KeyRound size={16} />} onClick={() => void handleSaveConfig()}>
-                Save configuration
-              </Button>
-              {configured ? (
-                <Button variant="ghost" onClick={() => setEditingConfig(false)}>
-                  Cancel
-                </Button>
-              ) : null}
-            </div>
-            {authError ? <div className="cloud-error">{authError}</div> : null}
+                <ol className="cloud-checklist">
+                  <li>
+                    Install the <strong>Azure CLI</strong> and run <code>az login</code> once.
+                  </li>
+                  <li>
+                    From this project folder, run <code>node tools/token-broker.mjs</code>.
+                  </li>
+                  <li>
+                    Copy the <strong>Broker URL</strong> and <strong>Broker key</strong> it prints into
+                    the fields above.
+                  </li>
+                  <li>
+                    Save, then choose <strong>Connect to broker</strong>. No app registration or admin
+                    consent is needed.
+                  </li>
+                </ol>
+
+                <div className="cloud-actions">
+                  <Button
+                    variant="primary"
+                    icon={<KeyRound size={16} />}
+                    onClick={() => void handleSaveConfig()}
+                  >
+                    Save configuration
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    icon={<RefreshCw size={15} />}
+                    loading={busy === 'signin'}
+                    onClick={() => void handleTestBroker()}
+                  >
+                    Test connection
+                  </Button>
+                  {configured ? (
+                    <Button variant="ghost" onClick={() => setEditingConfig(false)}>
+                      Cancel
+                    </Button>
+                  ) : null}
+                </div>
+
+                {brokerTest ? (
+                  <div
+                    className={cx(
+                      'cloud-broker-test',
+                      brokerTest.ok ? 'is-success' : 'is-failure',
+                    )}
+                  >
+                    {brokerTest.ok ? <CheckCircle2 size={15} /> : <CircleAlert size={15} />}
+                    <span>{brokerTest.message}</span>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <div className="cloud-config-grid">
+                  <Field
+                    label="Application (client) ID"
+                    hint="From the Entra app registration. A GUID."
+                    htmlFor="cloud-client-id"
+                  >
+                    <input
+                      id="cloud-client-id"
+                      className="text-input"
+                      value={draft.clientId}
+                      onChange={(event) => setDraft({ ...draft, clientId: event.target.value })}
+                      placeholder="00000000-0000-0000-0000-000000000000"
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </Field>
+                  <Field
+                    label="Tenant ID or domain"
+                    hint="Use organizations to accept any work account."
+                    htmlFor="cloud-tenant-id"
+                  >
+                    <input
+                      id="cloud-tenant-id"
+                      className="text-input"
+                      value={draft.tenantId}
+                      onChange={(event) => setDraft({ ...draft, tenantId: event.target.value })}
+                      placeholder="contoso.onmicrosoft.com"
+                      autoComplete="off"
+                      spellCheck={false}
+                    />
+                  </Field>
+                </div>
+
+                <div className="cloud-redirect">
+                  <div>
+                    <span className="cloud-redirect-label">Redirect URI registered in Entra</span>
+                    <code>{redirectUri}</code>
+                  </div>
+                  <CopyButton text={redirectUri} label="Copy URI" />
+                </div>
+
+                <ol className="cloud-checklist">
+                  <li>
+                    <strong>Register a single-page application</strong> in Microsoft Entra ID.
+                  </li>
+                  <li>
+                    Add the redirect URI above under <em>Single-page application</em>.
+                  </li>
+                  <li>
+                    Add delegated permissions: <code>Dynamics CRM → user_impersonation</code> and{' '}
+                    <code>Power Platform API → EnvironmentManagement.Environments.Read</code>, then
+                    grant admin consent.
+                  </li>
+                  <li>
+                    Older registrations can use <code>Power Apps Service → user_impersonation</code>{' '}
+                    instead; the app falls back to the legacy environment API.
+                  </li>
+                  <li>Paste the application (client) ID and tenant above and save.</li>
+                </ol>
+
+                <div className="cloud-actions">
+                  <Button
+                    variant="primary"
+                    icon={<KeyRound size={16} />}
+                    onClick={() => void handleSaveConfig()}
+                  >
+                    Save configuration
+                  </Button>
+                  {configured ? (
+                    <Button variant="ghost" onClick={() => setEditingConfig(false)}>
+                      Cancel
+                    </Button>
+                  ) : null}
+                </div>
+              </>
+            )}
           </div>
         ) : account ? (
           <div className="cloud-account">
@@ -491,7 +739,9 @@ export function CloudTab({
               <strong>{account.name || account.username}</strong>
               <span>{account.username}</span>
               <span className="cloud-account-tenant">
-                <ShieldCheck size={13} /> {account.tenantId}
+                <ShieldCheck size={13} />{' '}
+                {account.mode === 'broker' ? 'Local broker' : 'Microsoft Entra'}
+                {account.tenantId ? ` · ${account.tenantId}` : ''}
               </span>
             </div>
             <div className="cloud-actions">
@@ -504,34 +754,35 @@ export function CloudTab({
                 Refresh environments
               </Button>
               <Button variant="ghost" icon={<LogOut size={15} />} onClick={() => void handleSignOut()}>
-                Sign out
+                {account.mode === 'broker' ? 'Disconnect' : 'Sign out'}
               </Button>
             </div>
           </div>
         ) : (
           <div className="cloud-signin">
             <div>
-              <strong>Sign in to continue</strong>
+              <strong>
+                {config.authMode === 'broker' ? 'Connect to the local broker' : 'Sign in to continue'}
+              </strong>
               <p>
-                Your browser opens a Microsoft sign-in popup. Access tokens stay in this tab&apos;s
-                session storage and are cleared when you sign out or close the tab.
+                {config.authMode === 'broker'
+                  ? 'Make sure the helper is running, then connect. It uses your Azure CLI session, so no token is pasted and no app registration is needed.'
+                  : 'Your browser opens a Microsoft sign-in popup. Access tokens stay in this tab’s session storage and are cleared when you sign out or close the tab.'}
               </p>
             </div>
             <Button
               variant="primary"
               size="lg"
-              icon={<LogIn size={17} />}
+              icon={config.authMode === 'broker' ? <KeyRound size={17} /> : <LogIn size={17} />}
               loading={busy === 'signin'}
-              onClick={() => void handleSignIn()}
+              onClick={() => void handleConnect()}
             >
-              Sign in with Microsoft
+              {config.authMode === 'broker' ? 'Connect to broker' : 'Sign in with Microsoft'}
             </Button>
           </div>
         )}
 
-        {authError && configured && !editingConfig ? (
-          <div className="cloud-error">{authError}</div>
-        ) : null}
+        {authError ? <div className="cloud-error">{authError}</div> : null}
         {envError ? <div className="cloud-error">{envError}</div> : null}
       </SectionCard>
 
@@ -833,7 +1084,10 @@ export function CloudTab({
 
           {!account ? (
             <p className="cloud-export-hint">
-              <LogIn size={14} /> Sign in to a Microsoft account above before importing.
+              <LogIn size={14} />{' '}
+              {config.authMode === 'broker'
+                ? 'Connect to the local broker above before importing.'
+                : 'Sign in to a Microsoft account above before importing.'}
             </p>
           ) : null}
 
